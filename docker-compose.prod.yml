@@ -8,8 +8,14 @@
 # All settings come from .env in this directory (Azure keys, DOMAIN, ACME_EMAIL).
 # Start:  docker compose -f docker-compose.prod.yml up -d --build
 
+# Containers need an explicit public DNS resolver: with snap-Docker + systemd-resolved
+# the default 127.0.0.53 stub is unreachable inside containers, which breaks Caddy's
+# ACME (Let's Encrypt) and the backend's Azure calls.
+x-dns: &dns ["8.8.8.8", "1.1.1.1"]
+
 services:
   backend:
+    dns: *dns
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -27,6 +33,7 @@ services:
     restart: unless-stopped
 
   frontend:
+    dns: *dns
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -40,6 +47,7 @@ services:
     restart: unless-stopped
 
   caddy:
+    dns: *dns
     image: caddy:2-alpine
     ports:
       - "80:80"
