@@ -1,0 +1,54 @@
+[33mcommit 775e588acc6827963611b53b12106baecf62a472[m[33m ([m[1;32mrestore/backend-2026-06-03[m[33m)[m
+Author: Amin Mohamed Douioui <mohamed.douioui@dhc-gmbh.com>
+Date:   Sun Jun 7 20:15:46 2026 +0200
+
+    rrstore backend 03.06
+
+[33mcommit 116a950006e8a3c6c550bdd93ea1b7d481150b6c[m[33m ([m[1;35mrefs/stash[m[33m)[m
+Merge: 0d7dd5f bd12595 b65f6f8
+Author: Amin Mohamed Douioui <mohamed.douioui@dhc-gmbh.com>
+Date:   Sun Jun 7 19:48:40 2026 +0200
+
+    On feature/optimization-baseline: WIP snapshot before restoring 2026-06-03 state (new pipeline + frontend work)
+
+[33mcommit 94fdfb4ff9a3294a2d0af2304a97f61a0118c60d[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmain[m[33m)[m
+Author: Amin Mohamed Douioui <mohamed.douioui@dhc-gmbh.com>
+Date:   Sun Jun 7 12:37:04 2026 +0200
+
+    reamde
+
+[33mcommit 75352f7c2c01ee7a6dc6d9b6ef4350b13ce9eed0[m
+Author: Amin Mohamed Douioui <mohamed.douioui@dhc-gmbh.com>
+Date:   Sun Jun 7 12:22:05 2026 +0200
+
+    hardening fix
+
+[33mcommit d36dfe637d68774b8dda663419eaca57a7cc7261[m
+Author: Amin Mohamed Douioui <mohamed.douioui@dhc-gmbh.com>
+Date:   Thu Jun 4 18:30:25 2026 +0200
+
+    version 1.0
+
+[33mcommit ce17cf606078a09d01a18a2db6c8cbddc5b3d924[m
+Author: Amin Mohamed Douioui <mohamed.douioui@dhc-gmbh.com>
+Date:   Mon Jun 1 09:56:41 2026 +0200
+
+    refactor
+
+[33mcommit 9110ac63ad3bd5b63646e08c0399cbea2a474a6b[m
+Author: Amin Mohamed Douioui <mohamed.douioui@dhc-gmbh.com>
+Date:   Mon May 25 16:50:12 2026 +0200
+
+    fix: ops hardening — CORS env config, API key auth, cleanup
+    
+    - CORS origins now configurable via CORS_ORIGINS env var (was 22 hardcoded localhost entries)
+    - API key authentication via X-API-Key header (opt-in via API_KEY env var, skipped in dev)
+    - Remove unused pandas dependency
+    - Fix stale vision_verifier.py docstring (module IS wired into pipeline)
+    - Document intentional GPT-4o usage in counter-check (accuracy over cost)
+
+[33mcommit 26c8834e2093061d04109ea9df4e1d25765bbb8d[m
+Author: Amin Mohamed Douioui <mohamed.douioui@dhc-gmbh.com>
+Date:   Thu Apr 16 20:34:58 2026 +0200
+
+    Initial commit — BOM-Mapper Schaufler

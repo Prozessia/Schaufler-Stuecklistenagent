@@ -1,0 +1,314 @@
+{
+  "schema_version": "1.0",
+  "template_info": {
+    "name": "CadCam_Stuecklistenvorlage_fuer_externe_Konstrukteure_V191",
+    "sheet": "Stückliste",
+    "header_row": 5,
+    "data_start_row": 7,
+    "meta_rows": {
+      "1": "Auftragsnr. / Job No.",
+      "2": "Kunde / Customer",
+      "3": "Beschreibung/Teilenr. / Description/Part No.",
+      "4": "Zeichnungsnr. / Drawing No."
+    }
+  },
+  "fields": [
+    {
+      "name": "Detail Number",
+      "name_de": "Positionsnummer",
+      "column": "A",
+      "type": "string",
+      "required": true,
+      "description": "Position number or detail number of the part",
+      "description_de": "Laufende Positions- oder Detail-Nummer",
+      "examples": ["420", "1000", "1010", "1050"]
+    },
+    {
+      "name": "Customer Part Number",
+      "name_de": "Teile-Nr. bei Kunde",
+      "column": "B",
+      "type": "string",
+      "required": false,
+      "description": "Customer-specific part number or drawing reference",
+      "description_de": "Kundenspezifische Teilenummer oder Zeichnungsreferenz",
+      "examples": ["20283_0420 #00", "B800009372559 #00"]
+    },
+    {
+      "name": "Higher index available",
+      "name_de": "Höherer Index vorhanden",
+      "column": "C",
+      "type": "string",
+      "required": false,
+      "description": "Whether a higher revision index is available",
+      "description_de": "Ob ein höherer Revisionsindex vorhanden ist",
+      "examples": ["Yes", "Nein"]
+    },
+    {
+      "name": "Design Count",
+      "name_de": "Stk. Konstr.",
+      "column": "D",
+      "type": "integer",
+      "required": true,
+      "description": "Number of pieces required per design/construction",
+      "description_de": "Stückzahl Konstruktion (Anzahl Teile pro Form)",
+      "examples": ["1", "2", "3", "4"]
+    },
+    {
+      "name": "Spare Count",
+      "name_de": "Stk. Ersatz",
+      "column": "E",
+      "type": "integer",
+      "required": false,
+      "description": "Number of spare parts",
+      "description_de": "Stückzahl Ersatzteile",
+      "examples": ["1", "0"]
+    },
+    {
+      "name": "Description",
+      "name_de": "Benennung",
+      "column": "F",
+      "type": "string",
+      "required": true,
+      "description": "Name or description of the part/component",
+      "description_de": "Bezeichnung / Name des Bauteils",
+      "examples": ["CORE PIN SLEEVE EJECTOR SIDE", "Formplatte", "HOLDER BLOCK COVER SIDE"]
+    },
+    {
+      "name": "Dimensions X/D",
+      "name_de": "Abmaß X/D",
+      "column": "G",
+      "type": "decimal",
+      "required": false,
+      "description": "Finished dimension X or diameter D in mm",
+      "description_de": "Fertigmaß X-Richtung oder Durchmesser in mm",
+      "examples": ["22.2", "1817", "832"]
+    },
+    {
+      "name": "Dimensions Y/L",
+      "name_de": "Abmaß Y/L",
+      "column": "H",
+      "type": "decimal",
+      "required": false,
+      "description": "Finished dimension Y or length L in mm",
+      "description_de": "Fertigmaß Y-Richtung oder Länge in mm",
+      "examples": ["207", "1867", "950"]
+    },
+    {
+      "name": "Dimensions Z",
+      "name_de": "Abmaß Z",
+      "column": "I",
+      "type": "decimal",
+      "required": false,
+      "description": "Finished dimension Z (height/depth) in mm",
+      "description_de": "Fertigmaß Z-Richtung (Höhe/Tiefe) in mm",
+      "examples": ["533", "527"]
+    },
+    {
+      "name": "Material",
+      "name_de": "Werkstoff",
+      "column": "J",
+      "type": "string",
+      "required": false,
+      "description": "Material or steel grade of the part",
+      "description_de": "Werkstoff / Stahlsorte des Bauteils",
+      "examples": ["H-13", "1.2312", "P20", "1.2343 ESU", "Cu", "Dievar"],
+      "master_data_lookup": "materials"
+    },
+    {
+      "name": "Parts Group",
+      "name_de": "Teilegrp.",
+      "column": "K",
+      "type": "string",
+      "required": false,
+      "description": "Part group classification (tooling category)",
+      "description_de": "Teilegruppe (Werkzeugbau-Klassifizierung)",
+      "examples": ["D2", "F", "U", "E", "K1", "K2", "N", "S", "B", "BB"],
+      "master_data_lookup": "parts_groups"
+    },
+    {
+      "name": "2D exists",
+      "name_de": "2D vorh.",
+      "column": "L",
+      "type": "string",
+      "required": false,
+      "description": "Whether a 2D drawing exists",
+      "description_de": "Ob eine 2D-Zeichnung vorhanden ist",
+      "examples": ["Yes", "Nein"]
+    },
+    {
+      "name": "3D exists",
+      "name_de": "3D vorh.",
+      "column": "M",
+      "type": "string",
+      "required": false,
+      "description": "Whether a 3D model exists",
+      "description_de": "Ob ein 3D-Modell vorhanden ist",
+      "examples": ["Yes"]
+    },
+    {
+      "name": "Hardness",
+      "name_de": "Härte",
+      "column": "N",
+      "type": "string",
+      "required": false,
+      "description": "Required hardness specification",
+      "description_de": "Geforderte Härte des Bauteils",
+      "examples": ["44-46 HRC", "42-44 HRC", "28-32 HRC", "180-200 HB"],
+      "master_data_lookup": "hardness"
+    },
+    {
+      "name": "Nitriding",
+      "name_de": "Nitrieren",
+      "column": "O",
+      "type": "string",
+      "required": false,
+      "description": "Whether nitriding is required (Yes/No)",
+      "description_de": "Ob Nitrieren erforderlich ist (Ja/Nein)",
+      "examples": ["Yes", "Nein"]
+    },
+    {
+      "name": "Nitriding type",
+      "name_de": "Nitr.-Art",
+      "column": "P",
+      "type": "string",
+      "required": false,
+      "description": "Type of nitriding process",
+      "description_de": "Art des Nitriervorgangs",
+      "examples": ["plasmanitrided", "gas nitriding", "case hardening"],
+      "master_data_lookup": "nitriding_types"
+    },
+    {
+      "name": "Nitriding depth",
+      "name_de": "Nitr.-Tiefe",
+      "column": "Q",
+      "type": "string",
+      "required": false,
+      "description": "Nitriding depth specification",
+      "description_de": "Nitriertiefe",
+      "examples": ["0,3 mm", "0,1-0,2 mm", "0,05 mm"]
+    },
+    {
+      "name": "Coating",
+      "name_de": "Beschichtung",
+      "column": "R",
+      "type": "string",
+      "required": false,
+      "description": "Surface coating specification",
+      "description_de": "Oberflächenbeschichtung",
+      "examples": ["BALINIT ALCRONA PRO", "Duplex Tigral", "PVD"],
+      "master_data_lookup": "coatings"
+    },
+    {
+      "name": "Manufacturer",
+      "name_de": "Hersteller",
+      "column": "S",
+      "type": "string",
+      "required": false,
+      "description": "Manufacturer or supplier of the part/material",
+      "description_de": "Hersteller / Lieferant des Teils oder Materials",
+      "examples": ["Böhler", "DEW", "Buderus", "DME", "Eifeler"],
+      "master_data_lookup": "manufacturers"
+    },
+    {
+      "name": "Manufacturer officially required",
+      "name_de": "Hersteller zwingend",
+      "column": "T",
+      "type": "string",
+      "required": false,
+      "description": "Whether the specified manufacturer is mandatory",
+      "description_de": "Ob der angegebene Hersteller zwingend ist"
+    },
+    {
+      "name": "Manufacturer part no.",
+      "name_de": "Hersteller Material-Nr.",
+      "column": "U",
+      "type": "string",
+      "required": false,
+      "description": "Manufacturer-specific part or material number",
+      "description_de": "Hersteller-spezifische Material- oder Teilenummer"
+    },
+    {
+      "name": "Schaufler Tooling Standard",
+      "name_de": "Schaufler Tooling Standard",
+      "column": "V",
+      "type": "string",
+      "required": false,
+      "description": "Whether part is according to Schaufler internal standard",
+      "description_de": "Ob das Teil dem Schaufler-internen Standard entspricht"
+    },
+    {
+      "name": "Target cost block description",
+      "name_de": "ZK-Key",
+      "column": "W",
+      "type": "string",
+      "required": false,
+      "description": "Target cost block key for cost allocation",
+      "description_de": "Zielkosten-Block Key für Kostenzuordnung"
+    },
+    {
+      "name": "Special Notes",
+      "name_de": "besondere Hinweise",
+      "column": "X",
+      "type": "string",
+      "required": false,
+      "description": "Special notes or remarks about the part",
+      "description_de": "Besondere Hinweise oder Bemerkungen zum Bauteil",
+      "examples": ["wird vom Kunden beigestellt", "Gasnitrieren!", "Mecobond"]
+    },
+    {
+      "name": "Refurbishment",
+      "name_de": "Neubestückung",
+      "column": "Y",
+      "type": "string",
+      "required": false,
+      "description": "Whether the part is for refurbishment/restocking",
+      "description_de": "Ob das Teil für Neubestückung vorgesehen ist",
+      "examples": ["Yes"]
+    },
+    {
+      "name": "Pre assembling",
+      "name_de": "Vormontage",
+      "column": "Z",
+      "type": "string",
+      "required": false,
+      "description": "Whether part requires pre-assembly",
+      "description_de": "Ob das Teil Vormontage benötigt"
+    },
+    {
+      "name": "What has been changed?",
+      "name_de": "was wurde geändert",
+      "column": "AA",
+      "type": "string",
+      "required": false,
+      "description": "Change description for revision tracking",
+      "description_de": "Änderungsbeschreibung für Revisionsverfolgung"
+    },
+    {
+      "name": "Detailed Drawing",
+      "name_de": "Zeichnung detailliert",
+      "column": "AB",
+      "type": "string",
+      "required": false,
+      "description": "Whether detailed drawing exists (Ja/Nein dropdown)",
+      "description_de": "Ob eine detaillierte Zeichnung vorhanden ist (Ja/Nein)"
+    },
+    {
+      "name": "Drawings sent to STL",
+      "name_de": "Zeichnung an STL versendet",
+      "column": "AC",
+      "type": "string",
+      "required": false,
+      "description": "Whether drawings were sent to STL (Ja/Nein dropdown)",
+      "description_de": "Ob Zeichnungen an STL versendet wurden (Ja/Nein)"
+    },
+    {
+      "name": "Drawings sent from STL",
+      "name_de": "Zeichnung von STL ausgegeben",
+      "column": "AD",
+      "type": "string",
+      "required": false,
+      "description": "Whether drawings were issued from STL (Ja/Nein dropdown)",
+      "description_de": "Ob Zeichnungen von STL ausgegeben wurden (Ja/Nein)"
+    }
+  ]
+}

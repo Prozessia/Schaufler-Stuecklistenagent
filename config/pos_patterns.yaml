@@ -1,0 +1,24 @@
+# Position-identifier patterns for PDF text scanning (B1).
+#
+# Each entry is a regex alternative for a position/detail number. ORDER IS
+# PRIORITY: the scanner tries them left-to-right and the first match at a given
+# text position wins. Keep SPECIFIC patterns first and the broad sequential
+# pattern (\b\d{1,4}\b) ALWAYS LAST, otherwise "10-20" would be captured as a
+# bare "10".
+#
+# New customer formats can be added here without any code change.
+position_patterns:
+  - '\d+-\d+'      # detail numbers: 1-1, 10-20
+  - 'K-\d+'        # K-positions: K-5
+  - '[A-Z]-\d+'    # generic letter-prefixed: A-12, P-3
+  #
+  # OPT-IN per instance — DO NOT enable globally:
+  # The bare sequential pattern matches EVERY 1–4 digit number in the raw text
+  # layer (quantities, dimensions, dates, page refs), producing hundreds of
+  # phantom positions because the text scanner has no column context. For
+  # customers whose positions are plain running numbers (1, 2, 3, …), the
+  # reliable source is the EXTRACTED POSITION COLUMN (handled by the B2
+  # reconciler), not this raw-text scan. Enable the line below only for a
+  # specific instance where the text layer is known to be position-led:
+  #
+  # - '\b\d{1,4}\b'  # sequential running positions (MUST stay last)

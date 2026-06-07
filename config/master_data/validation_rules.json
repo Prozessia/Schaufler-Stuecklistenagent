@@ -1,0 +1,121 @@
+{
+  "version": "1.0",
+  "description": "Validation rules for Schaufler target schema fields",
+  "field_rules": {
+    "Detail Number": {
+      "type": "string",
+      "strip_leading_zeros": false,
+      "allow_alpha": true,
+      "max_length": 50
+    },
+    "Design Count": {
+      "type": "integer",
+      "min": 1,
+      "max": 9999,
+      "default_if_missing": null
+    },
+    "Spare Count": {
+      "type": "integer",
+      "min": 0,
+      "max": 999,
+      "default_if_missing": 0
+    },
+    "Dimensions X/D": {
+      "type": "decimal",
+      "min": 0.01,
+      "max": 50000,
+      "unit": "mm"
+    },
+    "Dimensions Y/L": {
+      "type": "decimal",
+      "min": 0.01,
+      "max": 50000,
+      "unit": "mm"
+    },
+    "Dimensions Z": {
+      "type": "decimal",
+      "min": 0.01,
+      "max": 50000,
+      "unit": "mm"
+    },
+    "Hardness": {
+      "type": "string",
+      "pattern": "^\\d+[\\-–]?\\d*\\s*(HRC|HB|HBW|HV)$",
+      "expected_range_hrc": [20, 65],
+      "expected_range_hb": [100, 600]
+    },
+    "Nitriding": {
+      "type": "boolean_like",
+      "true_values": ["yes", "ja", "si", "oui", "ano", "1", "true", "x"],
+      "false_values": ["no", "nein", "non", "ne", "0", "false", "-", ""]
+    },
+    "Nitriding depth": {
+      "type": "decimal",
+      "min": 0.01,
+      "max": 5.0,
+      "unit": "mm"
+    }
+  },
+  "parts_groups": {
+    "description": "Schaufler part group classifications",
+    "groups": {
+      "D2": "Druckform / Die",
+      "F": "Formrahmen / Frame",
+      "U": "Unterteile / Lower parts",
+      "E": "Einsatz / Insert",
+      "K1": "Kern 1 / Core 1",
+      "K2": "Kern 2 / Core 2",
+      "N": "Normalien / Standard parts",
+      "S": "Schieber / Slide",
+      "B": "Bewegliche Teile / Moving parts",
+      "BB": "Bewegliche Basisteile / Moving base parts",
+      "A": "Auswerfer / Ejector",
+      "H": "Heißkanal / Hot runner"
+    }
+  },
+  "nitriding_types": {
+    "canonical_values": [
+      "Plasmanitrieren",
+      "Gasnitrieren",
+      "Salzbadnitrieren",
+      "Einsatzhärten"
+    ],
+    "aliases": {
+      "Plasmanitrieren": [
+        "plasmanitrided", "plasma nitriding", "plasma nitriert",
+        "ion nitriding", "Ionennitrieren", "NITEMPER"
+      ],
+      "Gasnitrieren": [
+        "gas nitriding", "Gasnitrieren", "gas nitriert",
+        "Nitralox", "nitralox"
+      ],
+      "Salzbadnitrieren": [
+        "salt bath nitriding", "Salzbadnitrieren", "Tenifer", "QPQ"
+      ],
+      "Einsatzhärten": [
+        "case hardening", "Einsatzhärten", "carbonitriding"
+      ]
+    }
+  },
+  "coatings": {
+    "canonical_values": [
+      "BALINIT ALCRONA PRO",
+      "Duplex Tigral",
+      "PVD",
+      "CVD",
+      "DLC",
+      "CrN",
+      "TiN",
+      "TiAlN"
+    ],
+    "aliases": {
+      "BALINIT ALCRONA PRO": ["BALINIT", "ALCRONA", "Alcrona Pro", "Balinit Alcrona"],
+      "Duplex Tigral": ["Tigral", "Tigral Duplex", "Duplex"],
+      "PVD": ["PVD", "pvd", "PVD coating", "PVD Beschichtung"],
+      "DLC": ["DLC", "Diamond Like Carbon"],
+      "CrN": ["CrN", "Chromnitrid", "Chrome Nitride"],
+      "TiN": ["TiN", "Titannitrid", "Titanium Nitride"],
+      "TiAlN": ["TiAlN", "Titan-Aluminium-Nitrid"]
+    }
+  }
+}

@@ -1,0 +1,37 @@
+# config/app_config.yaml
+company:
+  name: "SCHAUFLER Tooling GmbH & Co. KG"
+  industry: "Werkzeugbau / Aluminium-Druckguss"
+
+target:
+  schema_file: "config/target_schema.json"
+  template_file: "config/target_template.xlsx"
+  template_sheet: "Stückliste"
+  header_row: 5
+  data_start_row: 7
+
+scoring:
+  green_threshold: 0.90
+  yellow_threshold: 0.50
+  enable_counter_check: false
+  conservative_mode: false
+  verify_contract_enabled: true
+  verify_green_threshold: 0.90
+  soft_green_floor: 0.70
+  green_extraction_min_confidence: 0.70
+  soft_vetoes_as_yellow: true
+  empty_non_required_as_yellow: false
+  empty_non_required_as_neutral: true
+
+master_data:
+  materials_file: "config/master_data/materials.json"
+  units_file: "config/master_data/units.json"
+  validation_rules_file: "config/master_data/validation_rules.json"
+
+domain_context: |
+  Werkzeugbauunternehmen das Aluminium-Druckgussformen fertigt.
+  Typische Stücklisten-Inhalte: Formplatten, Schieber, Kerne, Einsätze,
+  Normalien, Heißkanäle. Materialien: Warmarbeitsstähle (1.2343, 1.2344),
+  Aluminium (AlSi9Cu3), Kupferlegierungen, Beryllium-Kupfer.
+  Typische Teile: Formrahmen ES/AS, Einsatz, Kontureinsatz, Schieber,
+  Angussbuchse, Stützleiste, Führungsleiste, Auswerfer.

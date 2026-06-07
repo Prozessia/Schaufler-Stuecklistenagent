@@ -1,0 +1,39 @@
+{
+  "version": "1.0",
+  "description": "Unit definitions and conversion factors for BOM value transformation",
+  "length": {
+    "base_unit": "mm",
+    "conversions": {
+      "mm": 1.0,
+      "cm": 10.0,
+      "m": 1000.0,
+      "in": 25.4,
+      "inch": 25.4,
+      "\"": 25.4,
+      "ft": 304.8
+    }
+  },
+  "weight": {
+    "base_unit": "kg",
+    "conversions": {
+      "kg": 1.0,
+      "g": 0.001,
+      "t": 1000.0,
+      "lbs": 0.453592,
+      "lb": 0.453592,
+      "oz": 0.0283495
+    }
+  },
+  "hardness_units": [
+    "HRC", "HRc", "Hrc", "hrc",
+    "HB", "HBW", "Hb", "hb",
+    "HV", "Hv", "hv",
+    "N/mm²", "N/mm2", "MPa"
+  ],
+  "hardness_canonical_unit": "HRC",
+  "dimension_separators": ["x", "X", "×", "*", "/"],
+  "decimal_formats": {
+    "comma_as_decimal": ["de", "fr", "it", "cz", "cs"],
+    "dot_as_decimal": ["en", "zh"]
+  }
+}

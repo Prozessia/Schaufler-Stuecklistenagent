@@ -1,0 +1,24 @@
+# Caddy reverse proxy with automatic HTTPS (Let's Encrypt).
+# DOMAIN and ACME_EMAIL are injected from docker-compose.prod.yml (.env).
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	# Backend (FastAPI) routes — keep in sync with src/api/main.py routers.
+	@backend path /auth /auth/* /jobs /jobs/* /upload /upload/* /feedback /feedback/* /stats /stats/* /settings /settings/* /health /docs /openapi.json
+	handle @backend {
+		reverse_proxy backend:8000
+	}
+
+	# Everything else → Next.js frontend.
+	handle {
+		reverse_proxy frontend:3000
+	}
+
+	encode gzip
+	request_body {
+		max_size 50MB
+	}
+}

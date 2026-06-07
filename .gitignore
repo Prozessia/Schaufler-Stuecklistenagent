@@ -1,0 +1,39 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+!.env.deploy.example
+
+# Test data / generated outputs (not needed to deploy; keep repo small)
+data/input/
+data/analysis/
+data/test_outputs/
+data/gold/
+evaluation/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Local data artifacts
+data/uploads/
+data/exports/
+data/jobs.db
+data/jobs.db-shm
+data/jobs.db-wal
+
+
+data/jobs.db
+data/output/*.db
+data/output/
+evaluation/output/
+*.db
+
+
+# Editor / OS
+.DS_Store
+
+# scratch / temp files
+.tmp_*

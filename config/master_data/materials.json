@@ -1,0 +1,237 @@
+{
+  "version": "1.0",
+  "description": "Material catalog for Schaufler Tooling — die casting mold materials",
+  "materials": [
+    {
+      "canonical": "1.2343 ESU",
+      "werkstoff_nr": "1.2343",
+      "din_name": "X38CrMoV5-1",
+      "category": "hot_work_steel",
+      "aliases": [
+        "1.2343", "1.2343ESU", "1-2343_ESU", "1-2343 ESU", "1-2343",
+        "X38CrMoV5-1", "X38CrMoV51",
+        "H-13", "H13", "H 13",
+        "SKD61", "SKD 61",
+        "Thermodur 2343 EFS", "Thermodur 2343"
+      ],
+      "typical_hardness_hrc": [42, 52],
+      "typical_use": "Formeinsätze, Kerne, Schieber"
+    },
+    {
+      "canonical": "1.2344 ESU",
+      "werkstoff_nr": "1.2344",
+      "din_name": "X40CrMoV5-1",
+      "category": "hot_work_steel",
+      "aliases": [
+        "1.2344", "1.2344ESU", "1-2344_ESU", "1-2344 ESU", "1-2344",
+        "X40CrMoV5-1", "X40CrMoV51",
+        "H-13 Superior", "H-13 Premium"
+      ],
+      "typical_hardness_hrc": [44, 52],
+      "typical_use": "Hochbelastete Formeinsätze"
+    },
+    {
+      "canonical": "1.2312",
+      "werkstoff_nr": "1.2312",
+      "din_name": "40CrMnMoS8-6",
+      "category": "mold_steel",
+      "aliases": [
+        "1.2312", "1-2312",
+        "40CrMnMoS8-6", "40CrMnMoS86",
+        "P20+S", "P20 S"
+      ],
+      "typical_hardness_hrc": [28, 34],
+      "typical_use": "Formrahmen, Platten"
+    },
+    {
+      "canonical": "1.2738",
+      "werkstoff_nr": "1.2738",
+      "din_name": "40CrMnNiMo8-6-4",
+      "category": "mold_steel",
+      "aliases": [
+        "1.2738", "1-2738",
+        "40CrMnNiMo8-6-4", "40CrMnNiMo864",
+        "P20+Ni", "P20 Ni", "P20 Modified"
+      ],
+      "typical_hardness_hrc": [28, 34],
+      "typical_use": "Formrahmen, große Platten"
+    },
+    {
+      "canonical": "1.2311",
+      "werkstoff_nr": "1.2311",
+      "din_name": "40CrMnMo7",
+      "category": "mold_steel",
+      "aliases": [
+        "1.2311", "1-2311",
+        "40CrMnMo7",
+        "P20"
+      ],
+      "typical_hardness_hrc": [28, 34],
+      "typical_use": "Formrahmen"
+    },
+    {
+      "canonical": "1.2709",
+      "werkstoff_nr": "1.2709",
+      "din_name": "X3NiCoMoTi18-9-5",
+      "category": "maraging_steel",
+      "aliases": [
+        "1.2709", "1-2709",
+        "X3NiCoMoTi18-9-5",
+        "Maraging 300", "18Ni300"
+      ],
+      "typical_hardness_hrc": [48, 54],
+      "typical_use": "Hochfeste Einsätze"
+    },
+    {
+      "canonical": "1.1730",
+      "werkstoff_nr": "1.1730",
+      "din_name": "C45W",
+      "category": "carbon_steel",
+      "aliases": [
+        "1.1730", "1-1730",
+        "C45W", "C45",
+        "1045", "AISI 1045"
+      ],
+      "typical_hardness_hrc": [0, 30],
+      "typical_use": "Aufbauplatte, Halter"
+    },
+    {
+      "canonical": "1.0570",
+      "werkstoff_nr": "1.0570",
+      "din_name": "S355J2",
+      "category": "structural_steel",
+      "aliases": [
+        "1.0570", "1-0570",
+        "S355J2", "S355",
+        "St52-3", "St 52-3", "St52", "St 52"
+      ],
+      "typical_hardness_hrc": null,
+      "typical_use": "Aufbauplatte, Strukturteile"
+    },
+    {
+      "canonical": "1.0052",
+      "werkstoff_nr": "1.0052",
+      "din_name": "S235JR",
+      "category": "structural_steel",
+      "aliases": [
+        "1.0052", "1.0052-3", "1-0052",
+        "S235JR", "S235",
+        "St37"
+      ],
+      "typical_hardness_hrc": null,
+      "typical_use": "Aufbauplatten"
+    },
+    {
+      "canonical": "Cu",
+      "werkstoff_nr": null,
+      "din_name": null,
+      "category": "copper",
+      "aliases": [
+        "Cu", "Kupfer", "Copper",
+        "CuBe", "CuBe2", "Berylliumkupfer", "Beryllium-Kupfer",
+        "CW101C", "CW104C",
+        "MOLDMAX HH", "MOLDMAX", "Ampcoloy"
+      ],
+      "typical_hardness_hrc": null,
+      "typical_use": "Kerne, Einsätze (Wärmeleitfähigkeit)"
+    },
+    {
+      "canonical": "AlSi9Cu3",
+      "werkstoff_nr": null,
+      "din_name": "AlSi9Cu3(Fe)",
+      "category": "aluminium",
+      "aliases": [
+        "AlSi9Cu3", "AlSi9Cu3Fe", "AlSi9Cu3(Fe)",
+        "A380", "ADC12",
+        "226", "EN AC-46000"
+      ],
+      "typical_hardness_hrc": null,
+      "typical_use": "Gussteil (Referenz-Material)"
+    },
+    {
+      "canonical": "1.4305",
+      "werkstoff_nr": "1.4305",
+      "din_name": "X8CrNiS18-9",
+      "category": "stainless_steel",
+      "aliases": [
+        "1.4305", "1-4305",
+        "X8CrNiS18-9",
+        "AISI 303", "303"
+      ],
+      "typical_hardness_hrc": null,
+      "typical_use": "Korrosionsbeständige Teile"
+    },
+    {
+      "canonical": "1.4404",
+      "werkstoff_nr": "1.4404",
+      "din_name": "X2CrNiMo17-12-2",
+      "category": "stainless_steel",
+      "aliases": [
+        "1.4404", "1-4404",
+        "X2CrNiMo17-12-2",
+        "AISI 316L", "316L"
+      ],
+      "typical_hardness_hrc": null,
+      "typical_use": "Korrosionsbeständige Teile"
+    },
+    {
+      "canonical": "1.0060",
+      "werkstoff_nr": "1.0060",
+      "din_name": "E335",
+      "category": "structural_steel",
+      "aliases": [
+        "1.0060", "E335",
+        "11600"
+      ],
+      "typical_hardness_hrc": null,
+      "typical_use": "Strukturteile (Tschechisches Stücklisten-Material)"
+    },
+    {
+      "canonical": "Dievar",
+      "werkstoff_nr": null,
+      "din_name": null,
+      "category": "hot_work_steel",
+      "aliases": [
+        "Dievar", "DIEVAR", "Dievar ESR"
+      ],
+      "typical_hardness_hrc": [44, 50],
+      "typical_use": "Hochleistungs-Formeinsätze (Uddeholm)"
+    },
+    {
+      "canonical": "Orvar Supreme",
+      "werkstoff_nr": null,
+      "din_name": null,
+      "category": "hot_work_steel",
+      "aliases": [
+        "Orvar Supreme", "ORVAR SUPREME", "Orvar", "ORVAR"
+      ],
+      "typical_hardness_hrc": [44, 52],
+      "typical_use": "Formeinsätze (Uddeholm H-13 Variante)"
+    },
+    {
+      "canonical": "1.2767",
+      "werkstoff_nr": "1.2767",
+      "din_name": "X45NiCrMo4",
+      "category": "hot_work_steel",
+      "aliases": [
+        "1.2767", "1-2767",
+        "X45NiCrMo4",
+        "6F7"
+      ],
+      "typical_hardness_hrc": [40, 48],
+      "typical_use": "Schieber, Kerne"
+    },
+    {
+      "canonical": "1.2085",
+      "werkstoff_nr": "1.2085",
+      "din_name": "X33CrS16",
+      "category": "mold_steel",
+      "aliases": [
+        "1.2085", "1-2085",
+        "X33CrS16"
+      ],
+      "typical_hardness_hrc": [28, 34],
+      "typical_use": "Korrosionsbeständige Formen"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python -m pytest tests/test_ingestion/test_parse_all.py::TestSpecificFormats::test_audi_ulysses_format -v)"
+    ]
+  }
+}
