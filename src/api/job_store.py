@@ -214,12 +214,13 @@ class JobStore:
             orphaned,
         )
 
-    def create(self, job_id: str, filename: str, filepath: Path) -> Job:
+    def create(self, job_id: str, filename: str, filepath: Path, *, customer: str = "") -> Job:
         now = time.time()
         job = Job(
             job_id=job_id,
             filename=filename,
             filepath=filepath,
+            customer=customer,
             created_at=now,
             updated_at=now,
         )

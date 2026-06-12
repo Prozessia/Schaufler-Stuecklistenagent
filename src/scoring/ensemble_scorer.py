@@ -41,24 +41,11 @@ from src.scoring.threshold_manager import (
     load_scoring_config,
 )
 from src.scoring.value_comparator import ValueComparator
-from src.scoring.vision_verifier import CounterCheckRequest, VisionCounterCheckService
+from src.scoring.vision_verifier import BatchFieldRequest, VisionCounterCheckService
 from src.transform.cross_validator import CrossValidationResult
 
 logger = logging.getLogger(__name__)
 
-_DETAIL_NUMBER_UI_RELEASE_REASON = (
-    "Fix: Positionsnummern-Format für UI-Anzeige freigegeben"
-)
-_DETAIL_NUMBER_POSITION_FORMAT_RE = re.compile(r"^\d+(?:\s*[.-]\s*\d+)+$")
-_FRONTEND_UI_PASS_THROUGH_FIELDS = {
-    "Description",
-    "Dimensions X/D",
-    "Dimensions Y/L",
-    "Dimensions Z",
-}
-_FRONTEND_UI_PASS_THROUGH_REASON = (
-    "Fix: Hohe Extraktions-Konfidenz stuft Validierungs-Fehler auf YELLOW zurück"
-)
 _ERP_MISSING_POSITION_REASON = (
     "Critical Error: Position exists on PDF drawing/part list, but is completely "
     "missing in ERP master data (Excel)"
@@ -114,6 +101,19 @@ _PDF_QUANTITY_RE = re.compile(
     r"(?<![A-Z0-9])[-+]?\d+(?:[.,]\d+)?(?:\s*(?:stk|stck|pcs|pc|ea|x))?(?![A-Z0-9])",
     re.IGNORECASE,
 )
+
+
+@dataclass(slots=True)
+class _DeferredCounterCheck:
+    """A GREEN candidate awaiting the page-batched counter-check (PERF-002)."""
+
+    audit_index: int
+    page_number: int
+    gate_input: GreenGateInput
+    target_field: str
+    source_column: str
+    primary_value: str | None
+    bbox_hint: str = "unknown"
 
 
 @dataclass(slots=True)
@@ -190,7 +190,7 @@ async def score_bom_async(
     cv_contradictions = _index_cv_contradictions(cv_result) if cv_result else set()
 
     mv_error_fields, mv_warning_fields = _index_mapping_validation(mapping_validation)
-    coord_mismatch_cells, coord_column_conflict_cells, dual_mismatch_cells = (
+    coord_mismatch_cells, coord_column_conflict_cells, dual_mismatch_cells, plaus_cells = (
         _index_row_validation_flags(transform_result)
     )
 
@@ -217,6 +217,8 @@ async def score_bom_async(
             for idx, reasons in (transform_result.non_data_row_flags or {}).items()
         },
     )
+
+    deferred_counter_checks: list[_DeferredCounterCheck] = []
 
     for row in transform_result.rows:
         for cell in row.cells:
@@ -337,31 +339,6 @@ async def score_bom_async(
             if compare_result.field_category == "A" and candidate_conf < 0.55:
                 hard_vetoes.append("LOW_MAPPING_CONFIDENCE_CATEGORY_A")
 
-            if (
-                extraction.reason == "global_text_row_anchor"
-                and extraction.confidence >= 0.90
-                and compare_result.result == MatchResult.MATCH
-            ):
-                hard_vetoes = [
-                    veto
-                    for veto in hard_vetoes
-                    if veto not in {"PDF_COORDINATE_MISMATCH", "PDF_COLUMN_CONFLICT"}
-                ]
-
-            detail_number_ui_override = _should_release_detail_number_value_mismatch(
-                cell=cell,
-                compare_result=compare_result,
-                extracted_value=extraction.extracted_value,
-                blocking_errors=blocking_errors,
-                hard_vetoes=hard_vetoes,
-            )
-            if detail_number_ui_override:
-                hard_vetoes = [
-                    veto
-                    for veto in hard_vetoes
-                    if veto not in {"CHECK3_VALUE_MISMATCH", "HARD_VETO_PRESENT"}
-                ]
-
             soft_score = _clamp((cell.confidence + candidate_conf + rule_score) / 3.0)
 
             gate_input = GreenGateInput(
@@ -401,46 +378,42 @@ async def score_bom_async(
 
             counter_check_score: float | None = None
             counter_check_notes = "counter_check_skipped_pre_gate"
+            deferred_page_number: int | None = None
 
-            if pre_gate_passed and counter_check_enabled:
+            # ARCH-002: scan-path YELLOW recheck candidacy. A scanned PDF can only
+            # reach GREEN via the verified-scan gate, which REQUIRES a passed
+            # counter-check — but the pre-gate (counter_check_required=False) can
+            # never pass on scans, so without this the counter-check never ran and
+            # scan-GREEN was structurally dead. Candidacy mirrors every
+            # verified-scan precondition except the counter-check itself.
+            scan_recheck_candidate = (
+                config.enable_yellow_recheck
+                and counter_check_enabled
+                and not pre_gate_passed
+                and transform_result.extraction_method == ExtractionMethod.GPT4O_VISION
+                and not transform_result.has_text_layer
+                and not transform_result.vision_fallback_reason
+                and not blocking_errors
+                and not effective_hard_vetoes
+                and rule_score >= config.verify_green_threshold
+                and gate_input.value_plausible
+                and bool(transformed_val)
+            )
+
+            if (pre_gate_passed and counter_check_enabled) or scan_recheck_candidate:
+                # PERF-002: defer — verified in ONE Vision call per page after the
+                # loop, instead of one call per cell. Until then the cell stays
+                # YELLOW; promotion happens only through the full gate.
                 counter_check_notes = "counter_check_missing_page_number"
-                counter_check_passed = False
                 counter_check_score = 0.0
-
-                page_number = _resolve_counter_check_page_number(
+                deferred_page_number = _resolve_counter_check_page_number(
                     source_location,
                     extraction.source_location,
                 )
-                if page_number is not None:
-                    try:
-                        cc_request = CounterCheckRequest(
-                            job_id=job_id or "",
-                            pdf_path=pdf_path or Path(transform_result.source_file),
-                            page_number=page_number,
-                            target_field=cell.target_field,
-                            source_column=cell.source_column,
-                            primary_extracted_value=extraction.extracted_value,
-                            source_location=source_location,
-                        )
-                        cc_result = await counter_check_service.verify(cc_request)
-                        counter_check_passed = cc_result.passed
-                        counter_check_score = cc_result.score
-                        counter_check_notes = cc_result.notes
-                    except (RuntimeError, ValueError, TypeError, OSError) as exc:
-                        logger.warning(
-                            "Counter-check failed for row=%s field=%s: %s",
-                            row.row_index,
-                            cell.target_field,
-                            exc,
-                        )
-                        counter_check_notes = f"counter_check_error:{exc}"
-
-                final_gate_input = replace(
-                    pre_gate_input,
-                    counter_check_required=True,
-                    counter_check_passed=counter_check_passed,
-                )
-                is_green, green_evidence = can_be_green(final_gate_input)
+                if deferred_page_number is not None:
+                    counter_check_notes = "counter_check_deferred_batch"
+                is_green = False
+                green_evidence = []
             elif pre_gate_passed:
                 counter_check_notes = "counter_check_not_enabled"
                 is_green, green_evidence = can_be_green(pre_gate_input)
@@ -495,24 +468,6 @@ async def score_bom_async(
                 classification = TrafficLight.YELLOW
                 final_status = FinalStatus.YELLOW
 
-            if detail_number_ui_override:
-                classification = TrafficLight.YELLOW
-                final_status = FinalStatus.YELLOW
-                green_evidence = []
-                rule_details.append("detail_number_format_ui_override")
-
-            frontend_ui_pass_through = _should_apply_frontend_ui_pass_through(
-                transform_result=transform_result,
-                cell=cell,
-                extraction_found=check2_found,
-                classification=classification,
-            )
-            if frontend_ui_pass_through:
-                classification = TrafficLight.YELLOW
-                final_status = FinalStatus.YELLOW
-                green_evidence = []
-                rule_details.append("frontend_ui_pass_through_high_confidence")
-
             if (
                 cell.target_field in mv_warning_fields
                 and classification == TrafficLight.GREEN
@@ -522,6 +477,16 @@ async def score_bom_async(
                 final_status = FinalStatus.YELLOW
                 green_evidence = []
                 rule_details.append("MAPPING_VALIDATOR_WARNING_CAP")
+
+            if (
+                (row.row_index, cell.source_column) in plaus_cells
+                and classification == TrafficLight.GREEN
+            ):
+                # A plausibility flag (PLAUS: soft veto) caps GREEN at YELLOW.
+                classification = TrafficLight.YELLOW
+                final_status = FinalStatus.YELLOW
+                green_evidence = []
+                rule_details.append("PLAUSIBILITY_FLAG_CAP")
 
             verify_score = _compute_verify_score(
                 gate_input=pre_gate_input,
@@ -534,21 +499,17 @@ async def score_bom_async(
             if cell.target_field in mv_warning_fields:
                 rule_details.append("mapping validator warning")
 
-            reasoning = _DETAIL_NUMBER_UI_RELEASE_REASON
-            if not detail_number_ui_override:
-                reasoning = _build_reasoning(
-                    classification=classification,
-                    compare_result=compare_result,
-                    extraction_confidence=check2_confidence,
-                    extraction_reason=check2_reason,
-                    candidate_conf=candidate_conf,
-                    rule_score=rule_score,
-                    hard_vetoes=effective_hard_vetoes,
-                    blocking_errors=blocking_errors,
-                    green_evidence=green_evidence,
-                )
-            if frontend_ui_pass_through:
-                reasoning = f"{reasoning} | {_FRONTEND_UI_PASS_THROUGH_REASON}"
+            reasoning = _build_reasoning(
+                classification=classification,
+                compare_result=compare_result,
+                extraction_confidence=check2_confidence,
+                extraction_reason=check2_reason,
+                candidate_conf=candidate_conf,
+                rule_score=rule_score,
+                hard_vetoes=effective_hard_vetoes,
+                blocking_errors=blocking_errors,
+                green_evidence=green_evidence,
+            )
 
             cell_audit = CellAudit(
                 row_index=row.row_index,
@@ -609,6 +570,44 @@ async def score_bom_async(
 
             audit.cells = [*audit.cells, cell_audit]
             _increment_counts(audit, classification)
+
+            # PERF-002: remember deferred counter-check candidates for the
+            # page-batched verification after the loop. Promotion is only ever
+            # decided by can_be_green on the FULL gate input — and only for
+            # cells without warning/plausibility caps.
+            if (
+                deferred_page_number is not None
+                and classification == TrafficLight.YELLOW
+                and cell.target_field not in mv_warning_fields
+                and (row.row_index, cell.source_column) not in plaus_cells
+            ):
+                deferred_counter_checks.append(
+                    _DeferredCounterCheck(
+                        audit_index=len(audit.cells) - 1,
+                        page_number=deferred_page_number,
+                        gate_input=gate_input,
+                        target_field=cell.target_field,
+                        source_column=cell.source_column,
+                        primary_value=(
+                            check2_extracted_value or transformed_val
+                        ),
+                        bbox_hint=(
+                            str(source_location.bbox)
+                            if source_location and source_location.bbox
+                            else "unknown"
+                        ),
+                    )
+                )
+
+    # PERF-002/ARCH-002: page-batched counter-check for all deferred candidates.
+    if deferred_counter_checks and counter_check_service is not None:
+        await _run_batched_counter_checks(
+            audit=audit,
+            candidates=deferred_counter_checks,
+            counter_check_service=counter_check_service,
+            job_id=job_id or "",
+            pdf_path=pdf_path or Path(transform_result.source_file),
+        )
 
     # RB-1: stamp the deterministic band id onto every scored cell so the export
     # guard can assert the output by band identity (not position value).
@@ -674,6 +673,14 @@ async def score_bom_async(
     audit.completeness_guaranteed, audit.completeness_reason = _completeness_verdict(
         transform_result
     )
+
+    # ARCH-003: tell the reviewer WHY a non-PDF source shows no GREEN at all.
+    if not transform_result.source_is_pdf:
+        audit.green_policy_note = (
+            "Excel-/CSV-Quelle: GREEN ist für Nicht-PDF-Quellen deaktiviert "
+            "(kein unabhängiger PDF-Beweis möglich). Werte wurden deterministisch "
+            "übernommen — bitte im Review bestätigen."
+        )
 
     logger.info(
         "Scored %s: %d cells | GREEN %d | YELLOW %d | RED %d | NEUTRAL %d | MANUAL %d",
@@ -748,7 +755,12 @@ def _score_empty_cell(
         ["MAPPING_VALIDATOR_ERROR"] if has_blocking_validator_error else []
     )
 
-    if (not is_required) and empty_non_required_as_neutral and not blocking_errors:
+    if (
+        (not is_required)
+        and empty_non_required_as_neutral
+        and not blocking_errors
+        and raw_val == ""
+    ):
         neutral_audit = CellAudit(
             row_index=row.row_index,
             target_field=cell.target_field,
@@ -950,6 +962,93 @@ def _completeness_verdict(transform_result: TransformationResult) -> tuple[bool,
     )
 
 
+_BATCH_COUNTER_CHECK_MAX_FIELDS = 12
+
+
+async def _run_batched_counter_checks(
+    *,
+    audit: BomAuditTrail,
+    candidates: list[_DeferredCounterCheck],
+    counter_check_service: VisionCounterCheckService,
+    job_id: str,
+    pdf_path: Path,
+) -> None:
+    """Verify deferred GREEN candidates page-batched and promote via the gate.
+
+    One Vision call per page (chunked at _BATCH_COUNTER_CHECK_MAX_FIELDS) instead
+    of one per cell. A cell is promoted YELLOW→GREEN ONLY when can_be_green()
+    passes on the full gate input with the counter-check result — every other
+    safeguard (vetoes, plausibility, thresholds) stays in force. Any error keeps
+    the cell YELLOW (conservative).
+    """
+    by_page: dict[int, list[_DeferredCounterCheck]] = {}
+    for candidate in candidates:
+        by_page.setdefault(candidate.page_number, []).append(candidate)
+
+    for page_number in sorted(by_page):
+        page_candidates = by_page[page_number]
+        for start in range(0, len(page_candidates), _BATCH_COUNTER_CHECK_MAX_FIELDS):
+            chunk = page_candidates[start : start + _BATCH_COUNTER_CHECK_MAX_FIELDS]
+            requests = [
+                BatchFieldRequest(
+                    request_id=str(c.audit_index),
+                    target_field=c.target_field,
+                    source_column=c.source_column,
+                    primary_value=c.primary_value,
+                    bbox_hint=c.bbox_hint,
+                )
+                for c in chunk
+            ]
+            try:
+                results = await counter_check_service.verify_fields(
+                    job_id, pdf_path, page_number, requests
+                )
+            except (RuntimeError, ValueError, TypeError, OSError) as exc:
+                logger.warning(
+                    "Batch counter-check failed for page %d: %s", page_number, exc
+                )
+                for c in chunk:
+                    cell_audit = audit.cells[c.audit_index]
+                    cell_audit.counter_check_score = 0.0
+                    cell_audit.counter_check_notes = f"counter_check_error:{exc}"
+                continue
+
+            for c in chunk:
+                cc_result = results.get(str(c.audit_index))
+                cell_audit = audit.cells[c.audit_index]
+                if cc_result is None:
+                    cell_audit.counter_check_score = 0.0
+                    cell_audit.counter_check_notes = "counter_check_batch_no_answer"
+                    continue
+
+                cell_audit.counter_check_score = round(cc_result.score, 4)
+                cell_audit.counter_check_notes = cc_result.notes
+
+                final_gate_input = replace(
+                    c.gate_input,
+                    counter_check_required=True,
+                    counter_check_passed=cc_result.passed,
+                )
+                is_green, green_evidence = can_be_green(final_gate_input)
+                if not is_green:
+                    continue
+
+                # Promote: the full gate (incl. counter-check) has passed.
+                cell_audit.classification = TrafficLight.GREEN
+                cell_audit.final_status = FinalStatus.GREEN.value
+                cell_audit.green_evidence = green_evidence
+                cell_audit.final_score = 1.0
+                cell_audit.verify_score = 1.0
+                cell_audit.context_score = 1.0
+                cell_audit.reasoning = (
+                    cell_audit.reasoning.replace("Decision=YELLOW", "Decision=GREEN", 1)
+                    + " | PROMOTED_BY_BATCH_COUNTER_CHECK | GreenEvidence="
+                    + ",".join(green_evidence)
+                )
+                audit.green_count += 1
+                audit.yellow_count -= 1
+
+
 def _position_field(schema: TargetSchema) -> tuple[str, str]:
     """Return (field_name, column) of the position field, defaulting to (…, 'A')."""
     for name in _POSITION_FIELDS:
@@ -1034,60 +1133,6 @@ def _resolve_counter_check_page_number(
     return None
 
 
-def _should_release_detail_number_value_mismatch(
-    *,
-    cell: CellTransformation,
-    compare_result,
-    extracted_value: str | None,
-    blocking_errors: list[str],
-    hard_vetoes: list[str],
-) -> bool:
-    if cell.target_field != "Detail Number":
-        return False
-    if compare_result.result != MatchResult.MISMATCH:
-        return False
-    if blocking_errors:
-        return False
-    if "CHECK3_VALUE_MISMATCH" not in hard_vetoes:
-        return False
-    if _clamp(cell.confidence) < 0.90:
-        return False
-
-    extracted = (extracted_value or "").strip()
-    if not extracted:
-        return False
-    if "-" in extracted or "." in extracted:
-        return True
-
-    return bool(_DETAIL_NUMBER_POSITION_FORMAT_RE.fullmatch(extracted))
-
-
-def _should_apply_frontend_ui_pass_through(
-    *,
-    transform_result: TransformationResult,
-    cell: CellTransformation,
-    extraction_found: bool,
-    classification: TrafficLight,
-) -> bool:
-    if classification != TrafficLight.RED:
-        return False
-    if cell.target_field not in _FRONTEND_UI_PASS_THROUGH_FIELDS:
-        return False
-    if _clamp(cell.confidence) < 0.90:
-        return False
-    if not transform_result.source_is_pdf:
-        return False
-    if transform_result.extraction_method != ExtractionMethod.PYMUPDF_TEXT:
-        return False
-    if not transform_result.has_text_layer:
-        return False
-    if not extraction_found:
-        return False
-    if not (cell.transformed_value or "").strip():
-        return False
-    return True
-
-
 def _compute_rule_score(
     *,
     cell: CellTransformation,
@@ -1152,6 +1197,8 @@ def _method_quality_score(method: str) -> float:
         # passthrough — a correctly-read material id earns a green-eligible rule
         # score. Green stays gated by text-path + value_match in the green gate.
         "master_data:werkstoff_nr_format": 0.90,
+        # DATA-004: reconstructed (dot-swallowed) number — suggestion quality only.
+        "master_data:werkstoff_nr_stripped": 0.75,
         "integer_coerce": 0.95,
         "decimal_coerce": 0.90,
         "boolean_normalize": 0.95,
@@ -1493,10 +1540,16 @@ def _index_cv_contradictions(cv_result: CrossValidationResult) -> set[tuple[int,
 
 def _index_row_validation_flags(
     transform_result: TransformationResult,
-) -> tuple[set[tuple[int, str]], set[tuple[int, str]], set[tuple[int, str]]]:
+) -> tuple[
+    set[tuple[int, str]],
+    set[tuple[int, str]],
+    set[tuple[int, str]],
+    set[tuple[int, str]],
+]:
     coord_mismatch_cells: set[tuple[int, str]] = set()
     coord_column_conflict_cells: set[tuple[int, str]] = set()
     dual_mismatch_cells: set[tuple[int, str]] = set()
+    plaus_cells: set[tuple[int, str]] = set()
 
     for row_idx, flags in transform_result.row_validation_flags.items():
         for flag in flags:
@@ -1516,8 +1569,14 @@ def _index_row_validation_flags(
                 col_name = _extract_flag_column(flag[5:])
                 if col_name:
                     dual_mismatch_cells.add((row_idx, col_name))
+                continue
 
-    return coord_mismatch_cells, coord_column_conflict_cells, dual_mismatch_cells
+            if flag.startswith("PLAUS:"):
+                col_name = _extract_flag_column(flag[6:])
+                if col_name:
+                    plaus_cells.add((row_idx, col_name))
+
+    return coord_mismatch_cells, coord_column_conflict_cells, dual_mismatch_cells, plaus_cells
 
 
 def _extract_flag_column(flag_payload: str) -> str:

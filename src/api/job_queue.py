@@ -39,6 +39,8 @@ class JobQueue:
         self._concurrency = max(1, concurrency)
         self._queue: asyncio.Queue[str] = asyncio.Queue(maxsize=maxsize)
         self._workers: list[asyncio.Task] = []
+        # Ordered list of job ids waiting in the queue (not yet picked up by a worker).
+        self._pending: list[str] = []
 
     def start(self) -> None:
         """Spawn the worker pool. Idempotent; must run inside the event loop."""
@@ -50,11 +52,24 @@ class JobQueue:
 
     async def submit(self, job_id: str) -> None:
         """Enqueue a job id for processing (awaits if the queue is bounded+full)."""
+        self._pending.append(job_id)
         await self._queue.put(job_id)
+
+    def position(self, job_id: str) -> int | None:
+        """1-based position of job_id in the pending list; None if not waiting."""
+        try:
+            return self._pending.index(job_id) + 1
+        except ValueError:
+            return None
 
     async def _worker(self, worker_id: int) -> None:
         while True:
             job_id = await self._queue.get()
+            # Remove from the ordered pending list as the worker picks it up.
+            try:
+                self._pending.remove(job_id)
+            except ValueError:
+                pass  # already removed (e.g. by a concurrent retry submission)
             try:
                 await self._runner(job_id)
             except asyncio.CancelledError:

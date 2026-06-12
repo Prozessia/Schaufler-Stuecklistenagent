@@ -345,6 +345,14 @@ class PDFValueExtractor:
         context_text: str,
         anchor_value: str,
     ) -> str | None:
+        """Quantity from the anchor context — WITHOUT confirmation bias (BUG-002).
+
+        The old logic returned the EXPECTED value whenever it appeared anywhere
+        among the context numbers (dimensions, positions, material numbers all
+        qualify) — that confirmed wrong quantities. Now the context must contain
+        exactly ONE distinct quantity-shaped candidate; anything ambiguous
+        returns None (→ extraction missing → UNCERTAIN, never GREEN).
+        """
         expected_int = _parse_quantity_int(mapped_value)
         if expected_int is None:
             return None
@@ -352,17 +360,14 @@ class PDFValueExtractor:
         anchor_int = _parse_quantity_int(anchor_value)
         quantity_text = _extract_text_after_anchor(context_text, anchor_value)
         numeric_candidates = _extract_quantity_candidates(quantity_text)
-        filtered_candidates = [
+        distinct = {
             candidate
             for candidate in numeric_candidates
             if anchor_int is None or candidate != anchor_int
-        ]
+        }
 
-        if expected_int in filtered_candidates:
-            return str(expected_int)
-
-        if filtered_candidates:
-            return str(filtered_candidates[-1])
+        if len(distinct) == 1:
+            return str(next(iter(distinct)))
 
         return None
 
@@ -518,20 +523,34 @@ def _normalize_relaxed(value: str | None) -> str:
 
 
 def _context_contains_expected_value(mapped_value: str, context_text: str) -> bool:
-    expected_norm = _normalize_text(mapped_value)
-    context_norm = _normalize_text(context_text)
-    if not expected_norm or not context_norm:
-        return False
-    if expected_norm in context_norm:
-        return True
+    """Token-bounded containment check (BUG-001).
 
-    expected_core = _normalize_relaxed(mapped_value)
-    context_core = _normalize_relaxed(context_text)
-    if not expected_core or not context_core:
+    The old substring test confirmed values across token/cell boundaries
+    ("2" inside "3520", part numbers spanning two cells). Now the value must
+    appear as a whole token sequence (flexible separators, hard alnum
+    boundaries), and short pure-numeric values are never confirmable by mere
+    presence — a 1-3 digit number occurs somewhere in almost every BOM window.
+    """
+    text = (mapped_value or "").strip()
+    if not text or not (context_text or "").strip():
+        return False
+
+    expected_core = _normalize_relaxed(text)
+    if not expected_core:
         return False
     if expected_core.isdigit() and len(expected_core) < 4:
         return False
-    return expected_core in context_core
+
+    pattern = _build_anchor_pattern(text)
+    return bool(pattern and pattern.search(context_text))
+
+
+# BUG-002: a quantity token is a bare integer with at most a known unit suffix.
+# Mixed tokens ("4x10" → 410, "M12" → 12) must NOT collapse into integers.
+_QUANTITY_TOKEN_RE = re.compile(
+    r"[-+]?(\d{1,4})(?:[.,]0+)?(?:\s*(?:stk|stck|pcs|pc|ea|x))?",
+    re.IGNORECASE,
+)
 
 
 def _parse_quantity_int(value: str | None) -> int | None:
@@ -542,23 +561,19 @@ def _parse_quantity_int(value: str | None) -> int | None:
     if not cleaned:
         return None
 
-    cleaned = re.sub(r"([.,])0+\b", "", cleaned)
-    if re.search(r"[.,]\d", cleaned):
-        return None
-
-    digits_only = re.sub(r"\D+", "", cleaned)
-    if not digits_only:
+    match = _QUANTITY_TOKEN_RE.fullmatch(cleaned)
+    if not match:
         return None
 
     try:
-        return int(digits_only)
+        return int(match.group(1))
     except ValueError:
         return None
 
 
 def _extract_quantity_candidates(context_text: str) -> list[int]:
     candidates: list[int] = []
-    for token in re.findall(r"[-+]?\d+(?:[.,]\d+)?(?:\s*[A-Za-z]+)?", context_text):
+    for token in re.findall(r"[^\s|]+", context_text or ""):
         parsed = _parse_quantity_int(token)
         if parsed is not None:
             candidates.append(parsed)

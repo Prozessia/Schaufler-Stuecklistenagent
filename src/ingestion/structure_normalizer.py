@@ -8,9 +8,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from typing import Callable
 
 from src.core.models import FileFormat, ParsedBOM
-from src.ingestion.excel_parser import parse_excel
+from src.ingestion.excel_parser import parse_csv, parse_excel
 from src.ingestion.file_router import detect_format, infer_customer
 from src.ingestion.pdf_common import PasswordProtectedPdfError
 from src.llm.base import BaseLLM
@@ -18,13 +19,17 @@ from src.llm.base import BaseLLM
 logger = logging.getLogger(__name__)
 
 
-async def parse_file(filepath: Path | str, llm: BaseLLM | None = None) -> ParsedBOM:
+async def parse_file(
+    filepath: Path | str,
+    llm: BaseLLM | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> ParsedBOM:
     """Parse any supported BOM file and return a normalized ParsedBOM.
 
     This is the main entry point for Layer 1.
     For PDFs, text-layer documents prefer PyMuPDF text extraction + GPT-4o-mini.
     GPT-4o Vision is reserved for image-based scans without a usable text layer.
-    For Excel/CSV, the llm parameter is ignored.
+    For Excel/CSV, the progress_callback and llm parameters are ignored.
     """
     filepath = Path(filepath)
     fmt = detect_format(filepath)
@@ -33,6 +38,8 @@ async def parse_file(filepath: Path | str, llm: BaseLLM | None = None) -> Parsed
 
     if fmt == FileFormat.EXCEL:
         result = parse_excel(filepath)
+    elif fmt == FileFormat.CSV:
+        result = parse_csv(filepath)
     elif fmt == FileFormat.PDF:
         if llm is None:
             logger.info(
@@ -81,13 +88,17 @@ async def parse_file(filepath: Path | str, llm: BaseLLM | None = None) -> Parsed
                             filepath.name,
                             exc,
                         )
-                        result = await parse_pdf_vision(filepath, llm)
+                        result = await parse_pdf_vision(
+                            filepath, llm, progress_callback=progress_callback
+                        )
                 else:
                     logger.info(
                         "PDF %s has no usable text layer; using GPT-4o Vision fallback",
                         filepath.name,
                     )
-                    result = await parse_pdf_vision(filepath, llm)
+                    result = await parse_pdf_vision(
+                        filepath, llm, progress_callback=progress_callback
+                    )
             except PasswordProtectedPdfError:
                 raise
             except Exception as exc:  # noqa: BLE001
@@ -96,8 +107,8 @@ async def parse_file(filepath: Path | str, llm: BaseLLM | None = None) -> Parsed
                 )
                 result = parse_pdf_legacy(filepath)
                 result.metadata["primary_parse_failure_reason"] = str(exc)
-                if not locals().get("has_text_layer", False):
-                    result.metadata["vision_fallback_reason"] = str(exc)
+                result.metadata["vision_fallback_reason"] = str(exc)
+                result.metadata["legacy_parser_used"] = True
     else:
         raise ValueError(f"Unsupported file format: {fmt} for {filepath}")
 

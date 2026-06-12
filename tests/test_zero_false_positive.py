@@ -21,12 +21,10 @@ from src.reconciliation.position_reconciler import reconcile_positions
 from src.scoring.ensemble_scorer import (
     _extract_pdf_positions_from_pages,
     _extract_pdf_positions_from_document_text,
-    _should_release_detail_number_value_mismatch,
     score_bom,
 )
 from src.scoring.threshold_manager import ScoringConfig, TrafficLight
-from src.scoring.value_comparator import ValueCompareResult
-from src.scoring.value_comparator import ValueComparator, ValueCompareResult
+from src.scoring.value_comparator import ValueComparator
 from src.scoring.vision_verifier import CounterCheckResult
 from src.core.statuses import MatchResult
 from src.transform.cross_validator import CrossValidationResult
@@ -168,6 +166,24 @@ class _StubCounterCheckService:
             secondary_value=self._observed_value,
             secondary_confidence=0.99,
         )
+
+    async def verify_fields(self, job_id, pdf_path, page_number, requests):
+        """PERF-002: one batched call per page — `calls` counts CALLS, not cells."""
+        self.calls += 1
+        return {
+            r.request_id: CounterCheckResult(
+                passed=self._passed,
+                score=1.0 if self._passed else 0.0,
+                reason="stub",
+                notes=(
+                    f"stub_primary={r.primary_value}; "
+                    f"stub_secondary={self._observed_value}"
+                ),
+                secondary_value=self._observed_value,
+                secondary_confidence=0.99,
+            )
+            for r in requests
+        }
 
 
 def _schema_with_detail_customer_and_design_count() -> TargetSchema:
@@ -523,7 +539,15 @@ def test_check3_mismatch_forces_red() -> None:
     assert "CHECK3_VALUE_MISMATCH" in audit.cells[0].hard_vetoes
 
 
-def test_detail_number_position_format_is_released_for_ui_review() -> None:
+def test_detail_number_value_mismatch_is_red() -> None:
+    """BUG-014: Demo-Override entfernt; ein echter Wert-Widerspruch ist RED.
+
+    Previously a hardcoded override released CHECK3_VALUE_MISMATCH for Detail
+    Number fields when the extracted value contained '-' or '.'.  That path
+    silently converted genuine mismatches (transformed="101A", PDF="1-01") into
+    YELLOW, violating the zero-false-positive contract.  With the override gone,
+    these cells are correctly RED.
+    """
     schema = TargetSchema(
         fields=[
             TargetField(
@@ -588,38 +612,9 @@ def test_detail_number_position_format_is_released_for_ui_review() -> None:
 
     audit = score_bom(transform_result, mapping, schema=schema)
 
-    assert audit.cells[0].classification == TrafficLight.YELLOW
-    assert audit.cells[0].final_status == "yellow"
-    assert audit.cells[0].hard_vetoes == []
-    assert (
-        audit.cells[0].reasoning
-        == "Fix: Positionsnummern-Format für UI-Anzeige freigegeben"
-    )
-
-
-def test_detail_number_override_ignores_hard_veto_present_flag() -> None:
-    cell = CellTransformation(
-        target_field="Detail Number",
-        transformed_value="101A",
-        confidence=0.95,
-        method="passthrough",
-    )
-    compare_result = ValueCompareResult(
-        result=MatchResult.MISMATCH,
-        detail="normalized values differ",
-        field_category="A",
-        strict_exact_match=False,
-        normalized_mapped="101a",
-        normalized_extracted="1-01",
-    )
-
-    assert _should_release_detail_number_value_mismatch(
-        cell=cell,
-        compare_result=compare_result,
-        extracted_value="1-01",
-        blocking_errors=[],
-        hard_vetoes=["CHECK3_VALUE_MISMATCH", "HARD_VETO_PRESENT"],
-    )
+    # BUG-014: a real value mismatch (transformed "101A" vs PDF "1-01") must be RED.
+    assert audit.cells[0].classification == TrafficLight.RED
+    assert "CHECK3_VALUE_MISMATCH" in audit.cells[0].hard_vetoes
 
 
 def _single_field_pdf_audit(
@@ -857,6 +852,13 @@ def test_dimension_semantic_numeric_match_can_be_green() -> None:
 
 
 def test_dimension_semantic_numeric_match_requires_high_extraction_confidence() -> None:
+    """Garbled extracted value at low confidence must not match.
+
+    "2zu0 mm" tokenises as a pseudo-combined string whose positional component
+    contradicts the mapped value — a deterministic MISMATCH at any confidence
+    (numeric contradictions are vetoes; only the MATCH direction is gated on
+    high extraction confidence).
+    """
     comparator = ValueComparator()
     result = comparator.compare_values(
         mapped_value="20",
@@ -897,7 +899,11 @@ def test_description_semantic_core_match_requires_high_extraction_confidence() -
     assert result.strict_exact_match is False
 
 
-def test_customer_part_number_global_text_verification_can_be_green() -> None:
+def test_customer_part_number_global_text_verification_stays_yellow() -> None:
+    """BUG-004: document-global presence of a part number is NOT row-locked
+    identity proof — the value of another row would verify this cell. The
+    match keeps the cell out of RED, but GREEN is withheld (category A needs
+    strict exact evidence)."""
     cell = _single_field_pdf_audit(
         field_name="Customer Part Number",
         field_type="string",
@@ -909,7 +915,7 @@ def test_customer_part_number_global_text_verification_can_be_green() -> None:
         document_text_layer="Header\nCustomer Part Number: AB 123 45\nFooter",
     )
 
-    assert cell.classification == TrafficLight.GREEN
+    assert cell.classification == TrafficLight.YELLOW
     assert cell.value_match_result == "match"
     assert (
         cell.value_match_detail
@@ -963,7 +969,11 @@ def test_quantity_semantic_integer_mismatch_stays_red() -> None:
     assert "CHECK3_VALUE_MISMATCH" in cell.hard_vetoes
 
 
-def test_design_count_global_text_anchor_match_can_be_green() -> None:
+def test_design_count_global_text_anchor_match_stays_yellow() -> None:
+    """BUG-001: the global-text anchor fallback is weak, row-unlocked evidence
+    that echoes the value under test back as its own "extraction". Without an
+    independent master-data confirmation it must not carry GREEN — the match
+    evidence is kept (no RED), the reviewer confirms."""
     cell = _anchored_row_field_audit(
         target_field="Design Count",
         target_field_type="integer",
@@ -973,13 +983,18 @@ def test_design_count_global_text_anchor_match_can_be_green() -> None:
         document_text_layer="Page 1\n101 ANGLE PLATE 1 STK\nPage 2",
     )
 
-    assert cell.classification == TrafficLight.GREEN
-    assert cell.check2_reason == "global_text_row_anchor"
-    assert cell.pdf_extraction_confidence == 0.95
-    assert "anchor_field=Detail Number" in cell.pdf_source_location
+    # BUG-002: the 3-line window also contains "Page 2" — two quantity-shaped
+    # candidates make the context ambiguous, so the fallback extraction itself
+    # declines (no confirmation bias towards the expected value).
+    assert cell.classification == TrafficLight.YELLOW
+    assert cell.check2_reason == "no_coordinate_match"
+    assert cell.pdf_extracted_value is None
 
 
 def test_design_count_global_anchor_handles_leading_tokens_before_position() -> None:
+    """BUG-001: the anchor fallback still extracts correctly (leading tokens are
+    skipped), but without an independent master-data confirmation it carries
+    review-evidence only — YELLOW, never GREEN on its own."""
     cell = _anchored_row_field_audit(
         target_field="Design Count",
         target_field_type="integer",
@@ -989,8 +1004,10 @@ def test_design_count_global_anchor_handles_leading_tokens_before_position() -> 
         document_text_layer="67 2-040 ANGLE PLATE 1 STK",
     )
 
-    assert cell.classification == TrafficLight.GREEN
+    assert cell.classification == TrafficLight.YELLOW
+    assert "ANCHOR_FALLBACK_REQUIRES_MASTER_DATA" in cell.reasoning
     assert cell.check2_reason == "global_text_row_anchor"
+    assert cell.pdf_extracted_value == "1"
 
 
 def test_design_count_global_text_anchor_uses_customer_part_number() -> None:
@@ -1003,7 +1020,9 @@ def test_design_count_global_text_anchor_uses_customer_part_number() -> None:
         document_text_layer="Header\nAB 123 45 ANGLE PLATE 1 STK\nFooter",
     )
 
-    assert cell.classification == TrafficLight.GREEN
+    # BUG-001: anchor-fallback evidence alone never carries GREEN.
+    assert cell.classification == TrafficLight.YELLOW
+    assert "ANCHOR_FALLBACK_REQUIRES_MASTER_DATA" in cell.reasoning
     assert cell.check2_reason == "global_text_row_anchor"
     assert "anchor_field=Customer Part Number" in cell.pdf_source_location
 
@@ -1022,7 +1041,14 @@ def test_design_count_global_text_anchor_mismatch_stays_red() -> None:
     assert "CHECK3_VALUE_MISMATCH" in cell.hard_vetoes
 
 
-def test_frontend_ui_pass_through_downgrades_supported_red_fields_to_yellow() -> None:
+def test_value_mismatch_on_description_and_dimension_fields_is_red() -> None:
+    """BUG-014: Demo-Override entfernt; ein echter Wert-Widerspruch ist RED.
+
+    Previously a hardcoded frontend_ui_pass_through override promoted RED cells
+    with CHECK3_VALUE_MISMATCH to YELLOW for Description/Dimensions fields when
+    extraction confidence >= 0.90.  That silently discarded real contradictions.
+    With the override gone, value mismatches on these fields are correctly RED.
+    """
     test_cases = [
         ("Description", "string", "ANGLE PLATE A", "ANGLE PLATE B"),
         ("Dimensions X/D", "decimal", "10", "11 mm"),
@@ -1039,16 +1065,16 @@ def test_frontend_ui_pass_through_downgrades_supported_red_fields_to_yellow() ->
             confidence=0.95,
         )
 
-        assert cell.classification == TrafficLight.YELLOW
-        assert cell.final_status == "yellow"
-        assert "frontend_ui_pass_through_high_confidence" in cell.rule_details
-        assert (
-            "Fix: Hohe Extraktions-Konfidenz stuft Validierungs-Fehler auf YELLOW zurück"
-            in cell.reasoning
+        # BUG-014: a real value mismatch must be RED regardless of field type or confidence.
+        assert cell.classification == TrafficLight.RED, (
+            f"{field_name}: expected RED but got {cell.classification}"
         )
+        assert "CHECK3_VALUE_MISMATCH" in cell.hard_vetoes
+        assert "frontend_ui_pass_through_high_confidence" not in cell.rule_details
 
 
-def test_frontend_ui_pass_through_respects_confidence_threshold() -> None:
+def test_value_mismatch_below_confidence_threshold_also_red() -> None:
+    """BUG-014: Demo-Override entfernt; Wert-Widerspruch ist RED bei jeder Konfidenz."""
     cell = _single_field_pdf_audit(
         field_name="Description",
         field_type="string",
@@ -1058,10 +1084,7 @@ def test_frontend_ui_pass_through_respects_confidence_threshold() -> None:
     )
 
     assert cell.classification == TrafficLight.RED
-    assert (
-        "Fix: Hohe Extraktions-Konfidenz stuft Validierungs-Fehler auf YELLOW zurück"
-        not in cell.reasoning
-    )
+    assert "CHECK3_VALUE_MISMATCH" in cell.hard_vetoes
 
 
 def test_blocking_validator_error_caps_to_yellow_not_red_when_values_match() -> None:
@@ -1135,7 +1158,10 @@ def test_counter_check_failure_blocks_green_candidate() -> None:
     assert stub.calls == 1
     assert audit.cells[0].classification == TrafficLight.YELLOW
     assert audit.cells[0].counter_check_score == 0.0
-    assert "CHECK5_COUNTER_CHECK_FAILED" in audit.cells[0].reasoning
+    # PERF-002: the failed batch counter-check leaves the cell un-promoted;
+    # the verdict lives in the counter_check fields, not the reasoning string.
+    assert "stub_secondary" in audit.cells[0].counter_check_notes
+    assert "PROMOTED_BY_BATCH_COUNTER_CHECK" not in audit.cells[0].reasoning
 
 
 def test_counter_check_success_allows_green_candidate() -> None:

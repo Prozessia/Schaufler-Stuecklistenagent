@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
+from src.api.job_queue import job_queue
 from src.api.job_store import Job, job_store
 from src.api.models.schemas import (
     JobResult,
@@ -119,6 +120,9 @@ async def get_job_status(job_id: str):
     job = job_store.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    queue_position: int | None = None
+    if job.status == "pending":
+        queue_position = job_queue.position(job_id)
     return JobStatus(
         job_id=job.job_id,
         status=job.status,
@@ -126,6 +130,40 @@ async def get_job_status(job_id: str):
         customer=job.customer,
         progress=job.progress,
         error=job.error,
+        queue_position=queue_position,
+    )
+
+
+@router.post("/jobs/{job_id}/retry", response_model=JobStatus)
+async def retry_job(job_id: str):
+    """Re-queue a failed job for processing.
+
+    Returns 404 if the job does not exist, 409 if it is not in 'failed' state,
+    410 if the source file was already deleted.
+    """
+    job = job_store.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "failed":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job kann nur im Status 'failed' neu gestartet werden (aktuell: '{job.status}').",
+        )
+    if not job.filepath.exists():
+        raise HTTPException(
+            status_code=410,
+            detail="Quelldatei wurde bereits gelöscht — bitte erneut hochladen.",
+        )
+    job_store.update(job_id, status="pending", progress=0.0, error=None)
+    await job_queue.submit(job_id)
+    return JobStatus(
+        job_id=job_id,
+        status="pending",
+        filename=job.filename,
+        customer=job.customer,
+        progress=0.0,
+        error=None,
+        queue_position=job_queue.position(job_id),
     )
 
 

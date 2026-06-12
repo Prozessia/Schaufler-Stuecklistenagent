@@ -42,7 +42,9 @@ async def test_pipeline_marks_job_failed_when_mapping_raises_after_30_percent(
     source_file.write_bytes(b"%PDF-1.4 demo")
     store.create("job-30-stuck", source_file.name, source_file)
 
-    async def _parse_file(filepath: Path, llm: object | None = None) -> ParsedBOM:
+    async def _parse_file(
+        filepath: Path, llm: object | None = None, **_kwargs: object
+    ) -> ParsedBOM:
         assert filepath == source_file
         assert llm is not None
         return ParsedBOM(
@@ -93,7 +95,9 @@ async def test_pipeline_surfaces_mapping_json_parse_error_in_job_status(
     source_file.write_bytes(b"%PDF-1.4 demo")
     store.create("job-json-error", source_file.name, source_file)
 
-    async def _parse_file(filepath: Path, llm: object | None = None) -> ParsedBOM:
+    async def _parse_file(
+        filepath: Path, llm: object | None = None, **_kwargs: object
+    ) -> ParsedBOM:
         assert filepath == source_file
         assert llm is not None
         return ParsedBOM(

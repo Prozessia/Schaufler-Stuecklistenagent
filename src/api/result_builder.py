@@ -365,6 +365,7 @@ def build_job_result(
         manual_confirmed_pct=round(audit.manual_confirmed_pct, 1),
         completeness_guaranteed=audit.completeness_guaranteed,
         completeness_reason=audit.completeness_reason,
+        green_policy_note=getattr(audit, "green_policy_note", ""),
         expected_position_count=audit.expected_position_count,
         guard_basis=audit.guard_basis,
         excluded_rows=sorted(excluded_rows),

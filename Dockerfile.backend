@@ -8,8 +8,19 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ src/
 COPY config/ config/
 COPY prompts/ prompts/
-COPY data/ data/
+
+# data/ is mounted as a volume at runtime — create the directory tree here
+# and hand ownership to the non-root user (chown applied below).
+RUN mkdir -p data/uploads data/exports data/learned_mappings
+
+# SEC-006: run as non-root
+RUN groupadd -r app && useradd -r -g app appuser
+RUN chown -R appuser:app /app
+USER appuser
 
 EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=4).status==200 else 1)"
 
 CMD ["python", "-m", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

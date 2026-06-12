@@ -37,6 +37,12 @@ CORS_ORIGINS = (
 )
 
 
+def _docs_enabled() -> bool:
+    """Return True unless API_DOCS_ENABLED is explicitly set to false/0/no/off."""
+    raw = os.environ.get("API_DOCS_ENABLED", "true").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Create directories and start the job-queue worker pool."""
@@ -52,12 +58,16 @@ async def lifespan(_app: FastAPI):
     logger.info("BOM-Mapper API shutting down")
 
 
+_enabled = _docs_enabled()
 app = FastAPI(
     title="BOM-Mapper API",
     description="KI-gestütztes Stücklisten-Mapping für Schaufler Tooling",
     version="1.0.0",
     lifespan=lifespan,
     dependencies=[Depends(verify_api_key)],
+    docs_url="/docs" if _enabled else None,
+    redoc_url="/redoc" if _enabled else None,
+    openapi_url="/openapi.json" if _enabled else None,
 )
 
 app.add_middleware(

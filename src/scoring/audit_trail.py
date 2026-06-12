@@ -136,6 +136,10 @@ class BomAuditTrail(BaseModel):
     completeness_guaranteed: bool = False
     # Human-readable reason for the completeness verdict (shown in the dashboard).
     completeness_reason: str = ""
+    # ARCH-003: source-level GREEN policy notice. Non-PDF sources (Excel/CSV) are
+    # structurally GREEN-ineligible (no independent PDF evidence) — this explains
+    # the all-yellow result to the reviewer instead of leaving it a mystery.
+    green_policy_note: str = ""
 
     # R3: rows the reviewer has DELIBERATELY excluded (junk/footer rows that slipped
     # through). Keyed by row_index. This is an explicit, audited user action — it is

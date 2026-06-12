@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
+  AlertTriangle,
   BoxSelect,
   Check,
   CheckCircle2,
@@ -529,6 +530,19 @@ export function ResultTable({
       {!result.completeness_guaranteed && (
         <div className="shrink-0 px-3 pb-2 pt-3">
           <CompletenessBanner result={result} />
+        </div>
+      )}
+
+      {/* ARCH-003: Excel/CSV cannot produce GREEN — explain why. */}
+      {result.green_policy_note && (
+        <div className="shrink-0 px-3 pb-2">
+          <div
+            className="flex items-start gap-3 rounded-lg border border-[hsl(var(--status-yellow))]/50 bg-[hsl(var(--status-yellow))]/10 p-4 text-foreground"
+            role="status"
+          >
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--status-yellow))]" />
+            <p className="text-sm font-medium">{result.green_policy_note}</p>
+          </div>
         </div>
       )}
 

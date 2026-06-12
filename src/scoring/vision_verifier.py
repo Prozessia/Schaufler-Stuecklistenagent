@@ -83,6 +83,17 @@ class CounterCheckRequest:
 
 
 @dataclass(slots=True)
+class BatchFieldRequest:
+    """One field of a page-level batch verification (PERF-002)."""
+
+    request_id: str
+    target_field: str
+    source_column: str
+    primary_value: str | None
+    bbox_hint: str = "unknown"
+
+
+@dataclass(slots=True)
 class CounterCheckResult:
     """Output contract to be stored in audit/counter-check fields."""
 
@@ -229,6 +240,101 @@ class VisionCounterCheckService:
             secondary_confidence=verdict.confidence,
         )
 
+    async def verify_fields(
+        self,
+        job_id: str,
+        pdf_path: Path,
+        page_number: int,
+        requests: list[BatchFieldRequest],
+    ) -> dict[str, CounterCheckResult]:
+        """Verify MANY fields of one page with a single Vision call (PERF-002).
+
+        One call per page instead of one per cell — this is what makes the
+        counter-check economically usable. Fields the model does not answer
+        count as failed (conservative). Returns results keyed by request_id.
+        """
+        if not requests:
+            return {}
+        if page_number < 1:
+            return {
+                r.request_id: CounterCheckResult(
+                    passed=False,
+                    score=0.0,
+                    reason="invalid_page_number",
+                    notes=f"page_number={page_number}",
+                    secondary_value=None,
+                    secondary_confidence=0.0,
+                )
+                for r in requests
+            }
+
+        cache = self._get_or_create_job_cache(job_id, pdf_path)
+        image_b64 = cache.get_page_image_b64(page_number)
+
+        field_lines = "\n".join(
+            f'- id="{r.request_id}": Feld "{r.target_field}" '
+            f'(Spalten-Hinweis: {r.source_column or "unbekannt"}, '
+            f"Bbox-Hinweis: {r.bbox_hint})"
+            for r in requests
+        )
+        prompt = (
+            "Du bekommst EIN Seitenbild einer technischen Stückliste "
+            f"(Seite {page_number}).\n\n"
+            "Lies für JEDES der folgenden Felder den sichtbaren Wert ab. "
+            "Nicht raten; nicht normalisieren; keine anderen Felder.\n\n"
+            f"Felder:\n{field_lines}\n\n"
+            "Regeln:\n"
+            '1. status="found" nur bei klar lesbarem Wert.\n'
+            '2. status="ambiguous" bei mehreren Kandidaten oder geringer Sicherheit.\n'
+            '3. status="not_found" wenn kein Wert identifizierbar ist.\n\n'
+            "Antwortformat (NUR JSON):\n"
+            '{"results": [{"id": "...", "status": "found|ambiguous|not_found", '
+            '"observed_value": "string oder null", "confidence": 0.0, '
+            '"evidence": "kurzer Grund"}]}'
+        )
+
+        response = await self._llm.complete_with_image(
+            system=_COUNTER_CHECK_SYSTEM,
+            user=prompt,
+            image_b64=image_b64,
+            json_mode=True,
+            temperature=0.0,
+            max_tokens=max(self._max_tokens, 220 * len(requests) + 300),
+        )
+
+        payload = _safe_json_loads(response.content)
+        raw_by_id: dict[str, dict] = {}
+        if isinstance(payload, dict):
+            for entry in payload.get("results") or []:
+                if isinstance(entry, dict) and entry.get("id"):
+                    raw_by_id[str(entry["id"])] = entry
+
+        results: dict[str, CounterCheckResult] = {}
+        for request in requests:
+            entry = raw_by_id.get(request.request_id)
+            if entry is None:
+                results[request.request_id] = CounterCheckResult(
+                    passed=False,
+                    score=0.0,
+                    reason="missing_in_batch_response",
+                    notes="counter_check_batch_no_answer",
+                    secondary_value=None,
+                    secondary_confidence=0.0,
+                )
+                continue
+
+            verdict = _verdict_from_entry(entry)
+            passed = _counter_check_passed(verdict, request.primary_value)
+            results[request.request_id] = CounterCheckResult(
+                passed=passed,
+                score=1.0 if passed else 0.0,
+                reason=("match" if passed else "mismatch_or_unreadable"),
+                notes=_build_compare_note(verdict, request.primary_value),
+                secondary_value=verdict.observed_value,
+                secondary_confidence=verdict.confidence,
+            )
+        return results
+
     def release_job(self, job_id: str) -> None:
         """Release one job-scoped cache (required to avoid memory leaks)."""
         cache = self._job_caches.pop(job_id, None)
@@ -280,6 +386,23 @@ def _build_counter_check_prompt(request: CounterCheckRequest) -> str:
     )
 
 
+def _verdict_from_entry(entry: dict) -> _RawVisionVerdict:
+    """Build a verdict from one batch-result entry (same semantics as single)."""
+    status = str(entry.get("status", "ambiguous")).strip().lower()
+    if status not in {"found", "ambiguous", "not_found"}:
+        status = "ambiguous"
+    observed_raw = entry.get("observed_value")
+    observed_value = None if observed_raw is None else str(observed_raw).strip()
+    if observed_value == "":
+        observed_value = None
+    return _RawVisionVerdict(
+        status=status,
+        observed_value=observed_value,
+        confidence=_clamp(entry.get("confidence", 0.0)),
+        evidence=str(entry.get("evidence", "")).strip(),
+    )
+
+
 def _parse_counter_check_response(content: str) -> _RawVisionVerdict:
     payload = _safe_json_loads(content)
     if not isinstance(payload, dict):
@@ -318,7 +441,7 @@ def _safe_json_loads(content: str) -> dict | list | None:
     candidates: list[str] = [text]
     if text.startswith("```"):
         stripped = re.sub(
-            r"^```(?:json)?\\s*|\\s*```$",
+            r"^```(?:json)?\s*|\s*```$",
             "",
             text,
             flags=re.IGNORECASE | re.DOTALL,
@@ -337,7 +460,7 @@ def _safe_json_loads(content: str) -> dict | list | None:
             continue
         seen.add(candidate)
 
-        normalized = re.sub(r",\\s*([}\\]])", r"\\1", candidate)
+        normalized = re.sub(r",\s*([}\]])", r"\1", candidate)
         try:
             return json.loads(normalized)
         except json.JSONDecodeError:
@@ -376,10 +499,10 @@ def _build_compare_note(
 
 def _normalize_for_compare(value: str) -> str:
     normalized = value.strip().casefold()
-    normalized = re.sub(r"\\s+", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized)
 
     # Numeric harmonization for common OCR differences like comma vs dot.
-    if re.fullmatch(r"[-+]?\\d+(?:[.,]\\d+)?", normalized):
+    if re.fullmatch(r"[-+]?\d+(?:[.,]\d+)?", normalized):
         normalized = normalized.replace(",", ".")
 
     return normalized

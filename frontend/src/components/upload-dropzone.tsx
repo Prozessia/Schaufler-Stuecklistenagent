@@ -4,10 +4,11 @@ import { useCallback, useState } from "react";
 import { Upload, FileUp, X, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 interface UploadDropzoneProps {
-  onUpload: (file: File) => void;
+  onUpload: (file: File, customer?: string) => void;
   isUploading: boolean;
 }
 
@@ -29,6 +30,7 @@ export function UploadDropzone({ onUpload, isUploading }: UploadDropzoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [customer, setCustomer] = useState("");
 
   const handleFile = useCallback(
     (file: File) => {
@@ -77,7 +79,7 @@ export function UploadDropzone({ onUpload, isUploading }: UploadDropzoneProps) {
 
   const handleUploadClick = () => {
     if (selectedFile) {
-      onUpload(selectedFile);
+      onUpload(selectedFile, customer.trim() || undefined);
     }
   };
 
@@ -122,6 +124,17 @@ export function UploadDropzone({ onUpload, isUploading }: UploadDropzoneProps) {
                 <span className="rounded-full border border-[var(--line-subtle)] bg-[var(--surface-subtle)] px-3 py-1.5">CSV</span>
                 <span className="rounded-full border border-[var(--line-subtle)] bg-[var(--surface-subtle)] px-3 py-1.5">max. 50 MB</span>
               </div>
+              <div className="w-full max-w-xs">
+                <Input
+                  type="text"
+                  placeholder="Kunde (optional)"
+                  value={customer}
+                  onChange={(e) => setCustomer(e.target.value)}
+                  maxLength={100}
+                  disabled={isUploading}
+                  className="h-10 text-sm"
+                />
+              </div>
               <label className="cursor-pointer">
                 <input
                   type="file"
@@ -160,6 +173,17 @@ export function UploadDropzone({ onUpload, isUploading }: UploadDropzoneProps) {
               <p className="text-sm text-[var(--text-secondary)]">
                 {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
               </p>
+              <div className="w-full max-w-xs">
+                <Input
+                  type="text"
+                  placeholder="Kunde (optional)"
+                  value={customer}
+                  onChange={(e) => setCustomer(e.target.value)}
+                  maxLength={100}
+                  disabled={isUploading}
+                  className="h-10 text-sm"
+                />
+              </div>
               <Button
                 onClick={handleUploadClick}
                 disabled={isUploading}

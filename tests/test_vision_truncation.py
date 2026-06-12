@@ -58,7 +58,7 @@ async def test_single_page_path_always_used(
     monkeypatch.setattr(pdf_parser, "_extract_single_page", _fake_single_page)
 
     images = ["img1", "img2", "img3"]
-    rows, _mismatches = await pdf_parser._extract_all_pages_via_vision(
+    rows, _mismatches, _delta, _cols = await pdf_parser._extract_all_pages_via_vision(
         images, _COLUMNS, _TruncatingLLM(complete_objects=0)
     )
 

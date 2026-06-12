@@ -13,15 +13,29 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Query
 
 from src.api.job_store import Job, job_store
+from src.core.config_loader import load_app_config
 from src.export.feedback_store import FeedbackStore
 
 router = APIRouter(prefix="/stats")
 
 _feedback = FeedbackStore()
 
-# Rough manual-transfer estimate per BOM row (≈ 2 h+ for a typical ~40-row BOM).
-# Configurable via the settings page in a later phase.
-MINUTES_PER_ROW = 3.0
+# Fallback if not set in config (minutes of manual work per BOM row).
+_DEFAULT_MINUTES_PER_ROW = 3.0
+
+
+def _minutes_per_row() -> float:
+    """Return minutes_per_row from app_config.yaml → stats section (default 3.0)."""
+    try:
+        cfg = load_app_config()
+        value = cfg.get("stats", {}).get("minutes_per_row", _DEFAULT_MINUTES_PER_ROW)
+        return float(value)
+    except Exception:  # noqa: BLE001
+        return _DEFAULT_MINUTES_PER_ROW
+
+
+# Module-level alias kept for backwards compatibility (existing code that imports this).
+MINUTES_PER_ROW = _DEFAULT_MINUTES_PER_ROW
 
 
 def _completed() -> list[Job]:
@@ -46,8 +60,11 @@ def overview():
     neutral = sum(j.neutral_count for j in completed)
     manual = sum(j.manual_confirmed_count for j in completed)
 
-    automation_rate = _rate(green, total_cells)
-    time_saved_hours = round(total_rows * MINUTES_PER_ROW / 60.0 * automation_rate, 1)
+    # total_scored excludes NEUTRAL (intentionally empty optional fields)
+    total_scored = green + yellow + red + manual
+    minutes = _minutes_per_row()
+    automation_rate = _rate(green, total_scored)
+    time_saved_hours = round(total_rows * minutes / 60.0 * automation_rate, 1)
 
     return {
         "total_jobs": len(jobs),
@@ -59,9 +76,10 @@ def overview():
         "red": red,
         "neutral": neutral,
         "manual_confirmed": manual,
+        "total_scored": total_scored,
         "automation_rate": automation_rate,
         "corrections": _feedback.correction_count(),
-        "minutes_per_row": MINUTES_PER_ROW,
+        "minutes_per_row": minutes,
         "estimated_time_saved_hours": time_saved_hours,
         "status_counts": dict(Counter(j.status for j in jobs)),
     }
@@ -71,7 +89,7 @@ def overview():
 def timeseries(bucket: str = Query("month", pattern="^(week|month)$")):
     """Throughput + automation rate per period (week or month)."""
     agg: dict[str, dict[str, int]] = defaultdict(
-        lambda: {"jobs": 0, "rows": 0, "green": 0, "cells": 0}
+        lambda: {"jobs": 0, "rows": 0, "green": 0, "yellow": 0, "red": 0, "manual": 0}
     )
     for j in _completed():
         dt = datetime.fromtimestamp(j.created_at, tz=timezone.utc)
@@ -84,14 +102,19 @@ def timeseries(bucket: str = Query("month", pattern="^(week|month)$")):
         a["jobs"] += 1
         a["rows"] += j.total_rows
         a["green"] += j.green_count
-        a["cells"] += j.total_cells
+        a["yellow"] += j.yellow_count
+        a["red"] += j.red_count
+        a["manual"] += j.manual_confirmed_count
 
     return [
         {
             "period": key,
             "jobs": agg[key]["jobs"],
             "rows": agg[key]["rows"],
-            "automation_rate": _rate(agg[key]["green"], agg[key]["cells"]),
+            "automation_rate": _rate(
+                agg[key]["green"],
+                agg[key]["green"] + agg[key]["yellow"] + agg[key]["red"] + agg[key]["manual"],
+            ),
         }
         for key in sorted(agg)
     ]
@@ -102,7 +125,7 @@ def by_customer():
     """Per-customer throughput, automation rate and correction count."""
     corrections_by_customer = _feedback.stats()
     agg: dict[str, dict[str, int]] = defaultdict(
-        lambda: {"jobs": 0, "rows": 0, "green": 0, "yellow": 0, "red": 0, "cells": 0}
+        lambda: {"jobs": 0, "rows": 0, "green": 0, "yellow": 0, "red": 0, "manual": 0}
     )
     for j in _completed():
         customer = j.customer or "Unbekannt"
@@ -112,7 +135,7 @@ def by_customer():
         a["green"] += j.green_count
         a["yellow"] += j.yellow_count
         a["red"] += j.red_count
-        a["cells"] += j.total_cells
+        a["manual"] += j.manual_confirmed_count
 
     rows = [
         {
@@ -122,7 +145,10 @@ def by_customer():
             "green": a["green"],
             "yellow": a["yellow"],
             "red": a["red"],
-            "automation_rate": _rate(a["green"], a["cells"]),
+            "automation_rate": _rate(
+                a["green"],
+                a["green"] + a["yellow"] + a["red"] + a["manual"],
+            ),
             "corrections": corrections_by_customer.get(customer, 0),
         }
         for customer, a in agg.items()

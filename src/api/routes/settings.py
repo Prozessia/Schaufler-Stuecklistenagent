@@ -22,8 +22,10 @@ from pydantic import BaseModel, Field
 
 from src.api.job_store import job_store
 from src.export.feedback_store import FeedbackStore
+from src.scoring.threshold_manager import load_scoring_config, validate_contract
 from src.transform.master_data_matcher import (
     get_coating_catalog,
+    get_manufacturer_catalog,
     get_material_catalog,
     get_nitriding_catalog,
     get_parts_group_catalog,
@@ -140,6 +142,7 @@ def _clear_runtime_caches() -> None:
     get_nitriding_catalog.cache_clear()
     get_coating_catalog.cache_clear()
     get_parts_group_catalog.cache_clear()
+    get_manufacturer_catalog.cache_clear()
 
 
 @router.get("/config")
@@ -177,6 +180,7 @@ def reload_settings() -> dict[str, Any]:
             "nitriding_catalog",
             "coating_catalog",
             "parts_group_catalog",
+            "manufacturer_catalog",
         ],
     }
 
@@ -322,4 +326,5 @@ def system_info() -> dict[str, Any]:
         "corrections": feedback.correction_count(),
         "files": files,
         "azure_openai": env,
+        "scoring_contract_deviations": validate_contract(load_scoring_config()),
     }

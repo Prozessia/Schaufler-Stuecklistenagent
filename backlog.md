@@ -1,2014 +1,1436 @@
-# Umsetzungs-Backlog: Maximale Formatunabhaengigkeit und Output-Qualitaet
+# BACKLOG.md — Stücklistenagent Production-Readiness Review
 
-Stand: 2026-06-04  
-Ziel: Dieses Backlog ist so geschrieben, dass einzelne Tickets von KI-Agenten wie GitHub Copilot, Claude Code oder Codex nacheinander abgearbeitet werden koennen. Es setzt die komplette Review-Tabelle in eine technische Umsetzungsreihenfolge um.
+**Erstellt:** 2026-06-11 · **Branch:** `deploy/vps-v1` · **Methode:** Vollständige Code-Lektüre aller `src/`-Module, Konfiguration, Deployment-Dateien, Frontend, Stammdaten-Abgleich gegen `config/target_template.xlsx`, Testlauf der Suite, Git-Historien-Prüfung.
 
-## Leitprinzipien
+> Hinweis: Das frühere Planungs-Backlog (B001–B100) wurde unverändert nach `backlog_v1_planning.md` verschoben; `backlog_status.md` referenziert es weiterhin.
 
-1. Keine stillen Datenverluste. Ein Export darf nie weniger fachliche Zeilen enthalten als die Pipeline als relevant erkannt hat.
-2. Keine falschen Gruen-Bewertungen. Gruen bedeutet automatisch uebernehmbar; Gelb bedeutet Review; Rot bedeutet manuelle Klaerung.
-3. Formatunabhaengigkeit entsteht ueber ein Canonical Document Model, nicht ueber kunden- oder format-spezifische Sonderregeln.
-4. Jede KI-Entscheidung braucht Provenance: Quelle, Seite, Bounding Box oder Zelladresse, Parser-Spur, Prompt-Version und Score-Begruendung.
-5. Jede Aenderung muss durch Tests, Gold-Daten oder messbare Telemetrie abgesichert werden.
-6. Security, Secrets, Auth, Retention und Audit sind keine spaeten Extras, sondern Voraussetzung fuer produktive Nutzung.
-7. Kein Multi-Tenant-Overengineering. Das System bleibt Single-Instance, bekommt aber produktionsfaehige Rollen, Audit und Betriebsfaehigkeit.
+**Kontext:** Zero-False-Positive-Vertrag — GRÜN muss 100 % sicher sein. Jeder Pfad, der ein falsches GRÜN erzeugen kann, ist mit ⚠️ ZERO-FALSE-POSITIVE RISK markiert.
 
-## Arbeitsregeln fuer KI-Agenten
+**Architektur-Befund vorab (wichtig für die Einordnung):** Die implementierte Architektur weicht vom kommunizierten "Triple-Lock" ab. Es gibt zwei getrennte Pfade:
+- **Text-Pfad (RB-1, `coordinate_table.py`):** deterministische Koordinaten-Rekonstruktion für born-digital PDFs. Hier ist das Design solide (Band-Identität als Zeilen-ID, Vollständigkeits-Anker vor jedem LLM-Call). GRÜN entsteht praktisch nur hier.
+- **Vision-Pfad (`pdf_parser.py`):** Dual-Extraction + Koordinaten-Crosscheck. GRÜN ist hier an den Counter-Check gebunden — der in Produktion **abgeschaltet** ist (`enable_counter_check: false`), d. h. Scans liefern faktisch kein GRÜN.
+- **Lock 2b (OpenDataLoader)** existiert nur auf einem unmerged Feature-Branch, nicht im Deploy-Code.
 
-- Immer genau ein Ticket oder eine klar abgegrenzte Ticket-Gruppe bearbeiten.
-- Vor Codeaenderungen die im Ticket genannten Dateien lesen und die aktuelle Implementierung bestaetigen.
-- Keine kundenspezifischen Heuristiken fuer einzelne POC-Dateien einbauen.
-- Neue Parser, Scorer, Policies und LLM-Aufrufe muessen hinter klaren Interfaces liegen.
-- Bestehende Benutzer- oder ungetrackte Aenderungen nicht zuruecksetzen.
-- Neue Tests gehoeren direkt zum Ticket.
-- Nach jedem Ticket mindestens einen passenden Validierungsbefehl ausfuehren.
-- Wenn Azure- oder Secret-Informationen fehlen, mit Platzhaltern und dokumentierter Konfiguration arbeiten, keine echten Secrets einchecken.
-
-## Fortschritt und Agenten-Kontext
-
-Der laufende Bearbeitungsstand wird in [backlog_status.md](backlog_status.md) gepflegt. Diese Datei ist der gemeinsame Arbeits- und Uebergabespeicher fuer KI-Agenten.
-
-Pflichtprozess fuer jedes Ticket:
-
-1. Vor Start `backlog.md` und `backlog_status.md` lesen.
-2. Ticket in `backlog_status.md` auf `IN_PROGRESS` setzen und eine kurze Startnotiz eintragen.
-3. Nur die im Ticket benoetigten Dateien aendern.
-4. Passende Validierung ausfuehren und Ergebnis in `backlog_status.md` dokumentieren.
-5. Ticket erst auf `DONE` setzen, wenn Akzeptanzkriterien und Validierung erfuellt sind.
-6. Bei Blockern Status `BLOCKED` setzen, Ursache, fehlende Entscheidung und naechsten Schritt dokumentieren.
-7. Neue Architekturentscheidungen, Learnings, Kommandos und Risiken im Abschnitt `Agent Context Log` in `backlog_status.md` festhalten.
-
-## Empfohlene Standard-Validierung
-
-Je nach Ticket eine passende Teilmenge ausfuehren:
-
-```powershell
-python -m pytest tests -q
-python -m pytest tests/test_upload_security.py tests/test_job_queue.py tests/test_export_zero_data_loss.py -q
-python -m pytest tests/test_zero_false_positive.py tests/test_false_green_vision.py -q
-python -m pytest tests/test_llm_column_mapper_prompt.py tests/test_mapping_value_evidence.py -q
-python -m pytest tests/test_master_data_matcher.py tests/test_transform.py tests/test_scoring.py -q
-```
-
-Frontend, wenn betroffen:
-
-```powershell
-Set-Location frontend
-npm test
-npm run build
-```
-
-Security/Build, wenn vorhanden bzw. nach CI-Einfuehrung:
-
-```powershell
-python -m pip install pip-audit
-pip-audit
-npm audit --audit-level=high
-docker build -f Dockerfile.backend -t schaufler-bom-backend:local .
-docker build -f frontend/Dockerfile -t schaufler-bom-frontend:local frontend
-```
-
-## Zielarchitektur nach Umsetzung
-
-```mermaid
-flowchart TD
-  A[Upload: PDF/XLSX/XLS/CSV/Image/DOCX/HTML/EML/ZIP] --> B[Secure Upload Gateway]
-  B --> C[Quarantine, MIME Check, Retention Metadata]
-  C --> D[Parser Registry]
-  D --> E[Parser Ensemble: PyMuPDF/OpenPyXL/CSV/OCR/Document Intelligence/Vision]
-  E --> F[Canonical Document Graph]
-  F --> G[BOM Projection]
-  G --> H[Schema Mapping: LLM + Rules + Retrieval]
-  H --> I[Value Transform + Master Data + Units]
-  I --> J[Source Anchor Verification]
-  J --> K[Scoring + Green Gate + Countercheck]
-  K --> L[Audit Trail + Metrics + Cost Accounting]
-  L --> M[Review UI]
-  M --> N[Feedback Labels + Gold Set + Retrieval Index]
-  L --> O[Zero-Data-Loss Excel Export]
-```
-
-## Phasenplan
-
-| Phase | Ziel | Ticket-Bereich | Ergebnis |
-|---|---|---|---|
-| 0 | Sicherheits- und Reproduzierbarkeitsbasis | B001-B017 | Keine Secrets im Repo, sichere Defaults, CI, Locks, Upload-Vertrag repariert |
-| 1 | Messbarkeit und Gold-Basis | B018-B030 | Qualitaet, False Green, Table Recall und Prompt-Versionen messbar |
-| 2 | Canonical Document Model und Parser-Architektur | B031-B045 | Formatunabhaengige Ingestion-Basis mit Provenance |
-| 3 | Scan/OCR/Vision-Robustheit | B046-B055 | Unabhaengige Scan-Spur, OCR/Layout-Checks, adaptive Vision |
-| 4 | Mapping, RAG, LLM-Orchestrierung | B056-B066 | Bessere Mappings, strukturierte Outputs, Retrieval fuer Wissen und Korrekturen |
-| 5 | Scoring, Policies und Output-Qualitaet | B067-B075 | Feldpolitiken, Excel-Gruen-Policy, Unit Engine, staerkere Verifikation |
-| 6 | Plattform, Observability und Skalierung | B076-B083 | Tracing, Metrics, Worker, Storage, DB, Release-Infos |
-| 7 | UX, Produktworkflow und Lernen | B084-B089 | Review beschleunigt, Feedback verwertbar, Reports, Active Learning |
-| 8 | Explizite Ergaenzungen aus der Ausgangstabelle | B090-B100 | Retention, OIDC, Release, Backup, IaC, Pagination, Streaming und ADRs |
-
-## Abhaengigkeitsregeln
-
-- B001-B017 vor produktiven Deployments erledigen.
-- B018-B030 vor riskanten Parser-, LLM- oder Green-Gate-Aenderungen erledigen.
-- B031 Canonical Document Model vor neuen Formaten wie DOCX, EML, ZIP und Image stabilisieren.
-- B046-B055 vor Gruen-Freigaben fuer Scan- oder Vision-only-Dokumente erledigen.
-- B056-B066 nur mit Prompt-Versionierung und Gold-Eval aus Phase 1 produktiv schalten.
-- B076-B083 vor hohem Dokumentvolumen oder mehreren gleichzeitigen Reviewern einplanen.
+**Testlauf (2026-06-11):** 286 Tests kollektiert, Suite ist **nicht grün** — 3 Failures:
+1. `test_parse_all.py::test_has_rows[GF/STL_08.05.13.pdf]` — Legacy-Parser extrahiert 0 Zeilen (rotierte Matrix; LLM-loser Testpfad → TEST-002).
+2. + 3. `test_job_source_route.py::test_source_route_streams_uploaded_file` / `::test_source_route_blocks_paths_outside_upload_dir` — beide 401 statt 200/403: die Auth-Defaults (`login_enabled=True`) leaken in die Tests; die Tests setzen keinen Auth-Kontext (→ TEST-003).
+Restliche 262 Tests passed (87 Ingestion-E2E + 175 Unit/Integration, 5.5 s).
 
 ---
 
-## Phase 0: Security, Upload-Vertrag, CI und reproduzierbare Basis
+## UMSETZUNGSSTAND (2026-06-12)
 
-### B001 - Secret Hygiene `.env.example`
+Implementiert und durch die Suite abgedeckt (Reihenfolge der Umsetzung):
 
-- Kategorie: Security
-- Prioritaet: P0
-- Aufwand: S
-- Abhaengigkeiten: Azure-Zugang fuer Key-Rotation
-- Ausgangslage: `.env.example` enthaelt echte oder echt wirkende Azure-Key-Werte und unsichere Defaults.
-- Dateien: `.env.example`, `.gitignore`, `README.md`
-- Aufgaben:
-  - Alle echten oder echt wirkenden Secrets durch Platzhalter ersetzen.
-  - Dokumentieren, dass kompromittierte Keys rotiert werden muessen.
-  - Sicherstellen, dass `.env` und `.env.*` ignoriert bleiben, `.env.example` aber nur Platzhalter enthaelt.
-  - Optional lokale Secret-Scan-Anleitung im README ergaenzen.
-- Akzeptanzkriterien:
-  - Kein API-Key, Token, Passwort oder produktiver Endpoint in `.env.example`.
-  - Startdokumentation erklaert, welche Variablen gesetzt werden muessen.
-- Validierung:
-  - `git grep -n "AZURE_OPENAI_KEY\|admin/admin\|sk-\|api_key" -- .env.example README.md`
+| Datum | Tickets | Ergebnis |
+|---|---|---|
+| 2026-06-11 | **DATA-003** (Stammdaten-Import: 356 Werkstoffe, 179 Hersteller, 17 Teilegruppen + Manufacturer-Matching exakt-only) | größter GREEN-Hebel; `scripts/import_stammdaten.py` idempotent |
+| 2026-06-11 | **BUG-003, BUG-009, BUG-013, TEST-002, TEST-003** | Veto-Stripping entfernt; `_parse_decimal` fullmatch + positionale Dimension-MISMATCHes; NEUTRAL nur bei leerem Rohwert (`empty_non_required_as_yellow: true`); Suite grün |
+| 2026-06-12 | **BUG-001, BUG-002, BUG-004, BUG-006, BUG-007, BUG-008** (Evidenz-Härtung) | Anchor-Fallback token-gebunden + nie allein GREEN (beide Pfade); Mengen ohne Bestätigungs-Bias (genau 1 Kandidat); CPN-Dokumentprüfung token-gebunden, ≥6 Zeichen, kein strict_exact; 0.95-Generic-Bypass entfernt (Identität nur per strict-exact-Evidenz); UNCERTAIN-GREEN nur mit Master-Data; Boost 0.92→0.89; Fuzzy aus GREEN-Whitelist |
+| 2026-06-12 | **BUG-005 (funktional), BUG-010, BUG-012, BUG-015, BUG-018, BUG-019, BUG-020, BUG-021** | `validate_contract` + CONTRACT_DEVIATION-Warnungen + /settings/system; numerische Token-Vergleiche dezimaltreu; vision_verifier-Regexes repariert; Position "1.0"→"1"/"007"→"7"; CSV-Parser; .xls blockiert (400); Legacy-Fallback setzt immer vision_fallback_reason; PLAUS:-Flags cappen GREEN auf YELLOW |
+| 2026-06-12 | **BUG-011, BUG-014, BUG-016, BUG-017** | Vorkommens-Zähler → Unterdeckungs-Synthese (T-007 auf Vision sichtbar); beide Demo-Overrides entfernt (Mismatch = RED); Dual-Pairing per SequenceMatcher + row_count_delta; per-Seite-Strukturcheck mit Re-Detect ab Seite 2 |
+| 2026-06-12 | **SEC-002, SEC-003, SEC-004, SEC-005, SEC-006** | Default-Admin default aus + Warnung; CSRF Double-Submit serverseitig; Rate-Limit/Lockout/compare_digest; Magic-Byte-Check; Container non-root + HEALTHCHECK + .dockerignore + /docs abschaltbar |
+| offen | **SEC-001** | Rotation/History-Purge nur durch Betreiber — Anleitung: docs/runbook_sec001_key_rotation.md |
 
-### B002 - Default Admin deaktivieren
-
-- Kategorie: Security
-- Prioritaet: P0
-- Aufwand: S
-- Abhaengigkeiten: B001
-- Ausgangslage: Login mit `admin/admin` ist per Default moeglich.
-- Dateien: `src/core/auth.py`, `src/api/routes/auth.py`, `.env.example`, Tests fuer Auth
-- Aufgaben:
-  - Produktivmodus einfuehren oder vorhandene Env-Flags nutzen, sodass Default-Admin in Produktion verboten ist.
-  - Wenn kein Admin-Secret gesetzt ist, soll die App im Produktivmodus fail-fast starten.
-  - Tests fuer Default-Admin erlaubt in Dev und verboten in Prod ergaenzen.
-- Akzeptanzkriterien:
-  - `admin/admin` funktioniert nur bei explizitem Dev-Flag.
-  - Fehlkonfiguration wird beim Start klar gemeldet.
-- Validierung:
-  - `python -m pytest tests/test_auth*.py tests/test_upload_security.py -q`
-
-### B003 - CSRF-Schutz fuer Cookie-Auth
-
-- Kategorie: Security
-- Prioritaet: P0
-- Aufwand: S/M
-- Abhaengigkeiten: B002
-- Ausgangslage: State-changing API-Endpunkte verwenden Cookie-Auth, aber kein expliziter CSRF-Schutz ist sichtbar.
-- Dateien: `src/api/main.py`, `src/api/routes/auth.py`, Frontend API-Client
-- Aufgaben:
-  - CSRF-Token beim Login ausgeben oder Origin/Referer-Pruefung fuer mutierende Requests einfuehren.
-  - Frontend so anpassen, dass mutierende Requests Token/Header senden.
-  - Tests fuer fehlendes, falsches und korrektes Token schreiben.
-- Akzeptanzkriterien:
-  - POST/PUT/PATCH/DELETE auf Job-, Feedback- und Settings-Endpunkte werden ohne Schutz abgelehnt.
-  - API-Key-basierte interne Requests bleiben sauber definiert.
-- Validierung:
-  - `python -m pytest tests/test_auth*.py tests/test_upload_security.py -q`
-
-### B004 - Rate Limit per User/IP
-
-- Kategorie: Security/Perf
-- Prioritaet: P0
-- Aufwand: S/M
-- Abhaengigkeiten: B002
-- Ausgangslage: Login, Upload und LLM-ausloesende Endpunkte sind nicht sichtbar gedrosselt.
-- Dateien: `src/api/main.py`, `src/api/routes/upload.py`, `src/api/routes/auth.py`
-- Aufgaben:
-  - Lightweight Rate-Limit-Middleware fuer Login und Upload einfuehren.
-  - Limits konfigurierbar machen.
-  - Tests fuer Burst und Reset-Fenster schreiben.
-- Akzeptanzkriterien:
-  - Bruteforce-Login und Upload-Spam werden begrenzt.
-  - Fehlermeldung ist API-tauglich und enthaelt Retry-Hinweis.
-- Validierung:
-  - `python -m pytest tests/test_upload_security.py tests/test_auth*.py -q`
-
-### B005 - Login Lockout
-
-- Kategorie: Security
-- Prioritaet: P0
-- Aufwand: S
-- Abhaengigkeiten: B002, B004
-- Ausgangslage: Wiederholte falsche Logins werden nicht dauerhaft begrenzt.
-- Dateien: `src/core/auth.py`, `src/api/job_store.py` oder eigene Auth-Store-Datei
-- Aufgaben:
-  - Fehlversuche je Benutzer/IP speichern.
-  - Lockout-Dauer und Max-Versuche konfigurierbar machen.
-  - Tests fuer Lockout und automatisches Entsperren schreiben.
-- Akzeptanzkriterien:
-  - Nach definierten Fehlversuchen wird Login temporaer blockiert.
-  - Erfolgreicher Login setzt Zaehler zurueck.
-- Validierung:
-  - `python -m pytest tests/test_auth*.py -q`
-
-### B006 - Settings RBAC
-
-- Kategorie: Security/UX
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B002
-- Ausgangslage: Admin-Endpunkte sind nicht sauber von Reviewer-Funktionen getrennt.
-- Dateien: `src/core/auth.py`, `src/api/routes/settings.py`, `src/api/routes/jobs.py`, Frontend Settings UI
-- Aufgaben:
-  - Rollenmodell `admin` und `reviewer` einfuehren.
-  - Settings, Masterdata und System-Endpunkte auf Admin beschraenken.
-  - Job-Review-Funktionen fuer Reviewer erlauben.
-  - Frontend blendet Admin-Bereiche rollenbasiert aus.
-- Akzeptanzkriterien:
-  - Reviewer kann keine Config/Masterdata aendern.
-  - Admin kann Settings weiter verwalten.
-- Validierung:
-  - `python -m pytest tests/test_auth*.py tests/test_settings*.py -q`
-
-### B007 - MIME/Magic-Validation
-
-- Kategorie: Security/Ingestion
-- Prioritaet: P0
-- Aufwand: S
-- Abhaengigkeiten: B001
-- Ausgangslage: Upload vertraut stark auf Dateiendungen.
-- Dateien: `src/api/routes/upload.py`, `src/ingestion/file_router.py`, Tests
-- Aufgaben:
-  - Magic-Byte- oder MIME-Erkennung einfuehren.
-  - Extension und erkannter Typ muessen kompatibel sein.
-  - Spoofing-Fixtures fuer PDF/XLSX/CSV schreiben.
-- Akzeptanzkriterien:
-  - Umbenannte Schad- oder Textdateien werden nicht als PDF/XLSX akzeptiert.
-  - Fehlermeldung nennt erlaubte Formate.
-- Validierung:
-  - `python -m pytest tests/test_upload_security.py -q`
-
-### B008 - CSV wirklich parsen
-
-- Kategorie: Ingestion
-- Prioritaet: P0
-- Aufwand: S
-- Abhaengigkeiten: B007, Testdateien
-- Ausgangslage: Upload erlaubt CSV, `parse_file` verarbeitet CSV aber nicht.
-- Dateien: `src/ingestion/structure_normalizer.py`, `src/ingestion/file_router.py`, neue Tests
-- Aufgaben:
-  - CSV/TSV-Dialekterkennung fuer Separator, Encoding, Header-Zeile implementieren.
-  - CSV in `ParsedBOM` mit Zeilen- und Spaltenprovenance ueberfuehren.
-  - Tests fuer Komma, Semikolon, Tab, UTF-8, Windows-1252 schreiben.
-- Akzeptanzkriterien:
-  - CSV-Upload erzeugt ein valides `ParsedBOM`.
-  - Fehlerhafte CSVs landen nicht still im PDF/Excel-Fallback.
-- Validierung:
-  - `python -m pytest tests/test_ingestion* tests/test_job_source_route.py -q`
-
-### B009 - XLS Legacy korrekt behandeln
-
-- Kategorie: Ingestion
-- Prioritaet: P0
-- Aufwand: S/M
-- Abhaengigkeiten: Beispiel-XLS oder klare Produktentscheidung
-- Ausgangslage: `.xls` wird erlaubt, `openpyxl` deckt Legacy-XLS nicht sauber ab.
-- Dateien: `src/api/routes/upload.py`, `src/ingestion/excel_parser.py`, `src/ingestion/file_router.py`
-- Aufgaben:
-  - Entscheidung: `.xls` blocken oder per LibreOffice/calamine konvertieren.
-  - Wenn blocken: klare Fehlermeldung und Dokumentation.
-  - Wenn konvertieren: isolierten Konvertierungsschritt mit Timeout und Tests bauen.
-- Akzeptanzkriterien:
-  - `.xls` fuehrt nie zu kryptischem `openpyxl`-Fehler.
-  - Produktentscheidung ist dokumentiert.
-- Validierung:
-  - `python -m pytest tests/test_upload_security.py tests/test_job_source_route.py -q`
-
-### B010 - Source Cell Provenance Excel
-
-- Kategorie: Ingestion/QA
-- Prioritaet: P0
-- Aufwand: S/M
-- Abhaengigkeiten: B008, B009
-- Ausgangslage: Excel-Werte haben weniger exakte Source-Provenance als PDF-Textlayer.
-- Dateien: `src/ingestion/excel_parser.py`, `src/core/models.py`, Scoring/Audit Tests
-- Aufgaben:
-  - SourceLocation fuer Excel mit `sheet`, `row`, `column`, `address`, `value` erweitern.
-  - Transform- und Scoring-Pipeline muss Zelladressen im Audit erhalten.
-  - Review UI soll Excel-Source-Adressen anzeigen koennen.
-- Akzeptanzkriterien:
-  - Jeder Excel-Zielwert kann auf eine Quellzelle zurueckgefuehrt werden.
-  - Audit Trail zeigt Sheet und Zelladresse.
-- Validierung:
-  - `python -m pytest tests/test_mapping_value_evidence.py tests/test_scoring.py -q`
-
-### B011 - Config Schema Validation
-
-- Kategorie: DevEx
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: keine
-- Ausgangslage: YAML-Config kann zur Laufzeit fehlschlagen.
-- Dateien: `src/config.py`, `config/app_config.yaml`, Tests
-- Aufgaben:
-  - Pydantic-Settings-Modell fuer alle bekannten Config-Werte einfuehren.
-  - Defaults explizit dokumentieren.
-  - Fail-fast bei ungueltigen Thresholds, Pfaden und Security-Flags.
-- Akzeptanzkriterien:
-  - Ungueltige Config wird beim Start mit klarer Meldung abgelehnt.
-  - Tests decken gueltige und ungueltige Config ab.
-- Validierung:
-  - `python -m pytest tests/test_config*.py -q`
-
-### B012 - Dependency Pinning
-
-- Kategorie: DevEx/Security
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: Toolwahl, z. B. pip-tools oder uv
-- Ausgangslage: Python-Dependencies sind nicht voll reproduzierbar gepinnt.
-- Dateien: `requirements.txt`, optional `requirements.lock`, `frontend/package-lock.json`
-- Aufgaben:
-  - Python-Lockfile mit festen Versionen und reproduzierbarem Installationspfad einfuehren.
-  - Frontend Lockfile pruefen und Audit-Prozess dokumentieren.
-  - README-Installationsbefehle aktualisieren.
-- Akzeptanzkriterien:
-  - Frischer Checkout installiert reproduzierbar.
-  - Security-Audits laufen deterministisch.
-- Validierung:
-  - `python -m pip install -r requirements.txt`
-  - `Set-Location frontend; npm ci`
-
-### B013 - CI Pipeline
-
-- Kategorie: CI/CD
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B012
-- Ausgangslage: Keine GitHub Actions oder vergleichbare CI sichtbar.
-- Dateien: `.github/workflows/ci.yml`, README
-- Aufgaben:
-  - CI fuer Python Tests, Ruff/Lint, Frontend Tests und Frontend Build einfuehren.
-  - Live-Azure-Tests separieren und standardmaessig deaktivieren.
-  - Artifacts fuer Testberichte optional speichern.
-- Akzeptanzkriterien:
-  - Pull Request kann nicht ohne Basischecks gemerged werden.
-  - Tests sind ohne echte Secrets lauffaehig.
-- Validierung:
-  - Lokale Entsprechung der CI-Kommandos ausfuehren.
-
-### B014 - SAST/Dependency Scans
-
-- Kategorie: Security/CI
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B013
-- Ausgangslage: Keine automatisierten SAST- oder CVE-Gates sichtbar.
-- Dateien: `.github/workflows/security.yml`, Dockerfiles, README
-- Aufgaben:
-  - CodeQL oder vergleichbare SAST fuer Python/TypeScript aktivieren.
-  - `pip-audit`, `npm audit` und Docker-Image-Scan einbinden.
-  - Policy fuer kritische Findings definieren.
-- Akzeptanzkriterien:
-  - Kritische CVEs blockieren Releases.
-  - Findings sind nachvollziehbar dokumentiert.
-- Validierung:
-  - `python -m pip install pip-audit; pip-audit`
-  - `Set-Location frontend; npm audit --audit-level=high`
-
-### B015 - Container Hardening
-
-- Kategorie: Security/Deploy
-- Prioritaet: P0
-- Aufwand: S
-- Abhaengigkeiten: B012
-- Ausgangslage: Docker-Images koennen Runtime-Daten oder Root-Ausfuehrung enthalten.
-- Dateien: `Dockerfile.backend`, `frontend/Dockerfile`, `.dockerignore`, `docker-compose.yml`
-- Aufgaben:
-  - Non-root User fuer Backend und Frontend setzen.
-  - `.dockerignore` ergaenzen: `.env`, `data/uploads`, `data/exports`, `.venv`, `.git`, `node_modules`.
-  - Healthcheck definieren.
-  - Keine Kundendaten ins Image kopieren.
-- Akzeptanzkriterien:
-  - Container laufen als non-root.
-  - Image enthaelt keine lokalen Uploads/Exports/Secrets.
-- Validierung:
-  - `docker build -f Dockerfile.backend -t schaufler-bom-backend:local .`
-
-### B016 - Separate Demo/Test Data
-
-- Kategorie: Security/Deploy
-- Prioritaet: P0
-- Aufwand: S
-- Abhaengigkeiten: B015
-- Ausgangslage: `data/` kann versehentlich in Images oder Artefakte geraten.
-- Dateien: `.dockerignore`, `Dockerfile.backend`, `README.md`
-- Aufgaben:
-  - Demo-Daten klar von Runtime-Daten trennen.
-  - Docker-Build darf keine Uploads, Exports oder Jobs-DB kopieren.
-  - README erklaert Runtime-Volume.
-- Akzeptanzkriterien:
-  - Build-Kontext enthaelt keine produktiven Daten.
-  - Demo-Modus ist explizit.
-- Validierung:
-  - Docker-Build und manuelle Image-Inspektion.
-
-### B017 - Health Checks Deep
-
-- Kategorie: SRE
-- Prioritaet: P0
-- Aufwand: S
-- Abhaengigkeiten: B011
-- Ausgangslage: Healthcheck ist nicht tief genug fuer produktive Readiness.
-- Dateien: `src/api/main.py`, `src/api/routes/settings.py` oder neue `health.py`
-- Aufgaben:
-  - `/health/live` fuer Prozess lebt.
-  - `/health/ready` fuer Config, Template, DB, Schreibrechte, optional Azure Connectivity.
-  - Docker/Compose Healthcheck auf Readiness setzen.
-- Akzeptanzkriterien:
-  - Fehlende Vorlage oder kaputte DB fuehrt zu not-ready.
-  - Liveness bleibt stabil fuer Orchestrierung.
-- Validierung:
-  - `python -m pytest tests/test_health*.py -q`
+Offene Tickets: SEC-001 (User-Aktion), OPS-001…008, ARCH-001…005, PERF-001/002, DATA-001/002/004, FE-001…003, TEST-001.
 
 ---
 
-## Phase 1: Evaluation, Gold Set, Prompt-Versionierung und Qualitaetsgates
+## TEIL 1: TECHNISCHES BACKLOG
 
-### B018 - Gold Set mit Feld-Level Labels
-
-- Kategorie: Evaluation
-- Prioritaet: P0
-- Aufwand: L
-- Abhaengigkeiten: Fachreview, Beispiel-Dokumente
-- Ausgangslage: Es gibt viele Tests, aber keinen vollstaendigen Gold-Korpus mit erwarteten Zellen und Provenance.
-- Dateien: `data/gold/`, `tests/`, `scripts/`
-- Aufgaben:
-  - Gold-Format definieren: Dokument, erwartete Zeilen, Felder, Werte, Source-Anker, erlaubte Normalisierungen.
-  - Mindestens 10 repraesentative Dokumente labeln: Text-PDF, Scan-PDF, XLSX, CSV.
-  - Reviewer-Korrekturen als Kandidaten fuer Gold-Daten nutzbar machen.
-- Akzeptanzkriterien:
-  - Gold-Daten koennen ohne Azure-Secrets fuer deterministische Teile geprueft werden.
-  - Feld-Level Precision/Recall berechenbar.
-- Validierung:
-  - `python scripts/run_benchmark.py --input-dir data/gold --expected data/gold/expected.json`
-
-### B019 - Benchmark Harness
-
-- Kategorie: Evaluation
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B018
-- Ausgangslage: Diagnose-Skripte sind verteilt, Metriken nicht zentral.
-- Dateien: `scripts/run_benchmark.py`, `tests/test_regression.py`, `data/analysis/`
-- Aufgaben:
-  - Zentralen Runner fuer Parser Recall, Column Mapping Accuracy, Field Precision, False Green Rate und Export Completeness bauen.
-  - JSON- und Markdown-Report erzeugen.
-  - Exit-Code fuer CI-Gates unterstuetzen.
-- Akzeptanzkriterien:
-  - Benchmark liefert reproduzierbare Metriken pro Dokument und aggregiert.
-  - Regressionen koennen CI blockieren.
-- Validierung:
-  - `python scripts/run_benchmark.py --input-dir data/gold --expected data/gold/expected.json`
-
-### B020 - Table Structure Metrics
-
-- Kategorie: QA
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B018, B019
-- Ausgangslage: Tabellenstruktur wird nicht systematisch mit Row/Column/Cell-Metriken bewertet.
-- Dateien: `scripts/run_benchmark.py`, `src/ingestion/coordinate_table.py`, Gold-Schema
-- Aufgaben:
-  - Row Recall, Column F1, Cell Alignment Score und Header Accuracy definieren.
-  - Metriken fuer PDF, Excel und CSV ausgeben.
-  - Problematische Dokumente mit Fehlerklassen markieren.
-- Akzeptanzkriterien:
-  - Parser-Verbesserungen sind messbar statt subjektiv.
-  - CI kann Mindestwerte fuer Gold-Daten pruefen.
-- Validierung:
-  - Benchmark-Report enthaelt Table-Structure-Abschnitt.
-
-### B021 - False-Green Canary Suite
-
-- Kategorie: QA
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B018
-- Ausgangslage: Zero-False-Positive-Tests existieren, sollen aber als Canary-Suite ausgebaut werden.
-- Dateien: `tests/test_zero_false_positive.py`, `tests/test_false_green_vision.py`, neue Fixtures
-- Aufgaben:
-  - Adversarial Fixtures fuer vertauschte Menge/Position, fehlende SourceLocation, repariertes LLM-JSON, Scan-Unsicherheit, Material ohne Evidenz erstellen.
-  - Erwartung: niemals Gruen bei nicht unabhaengig verifizierbarer Quelle.
-  - Canary-Tests in CI immer laufen lassen.
-- Akzeptanzkriterien:
-  - Jeder bekannte False-Green-Risikopfad hat einen Test.
-  - Neue Scoring-Aenderungen muessen Canary bestehen.
-- Validierung:
-  - `python -m pytest tests/test_zero_false_positive.py tests/test_false_green_vision.py -q`
-
-### B022 - Scan Under-Extraction Test
-
-- Kategorie: QA
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B018
-- Ausgangslage: Vision kann bei Scan-Dokumenten Zeilen uebersehen, ohne unabhaengigen Anker.
-- Dateien: `tests/test_vision_multi.py`, `tests/test_false_green_vision.py`, neue Scan-Fixtures
-- Aufgaben:
-  - Fixture mit bekannter Positionsanzahl und simulierter Missing-Row bauen.
-  - Erwartung: Vollstaendigkeit nicht garantiert, keine Gruen-Freigabe fuer betroffene Zellen.
-  - Fehlergrund im Audit sichtbar machen.
-- Akzeptanzkriterien:
-  - Scan-Unterextraktion wird als Risiko erkannt.
-  - Betroffene Werte werden Gelb/Rot, nicht Gruen.
-- Validierung:
-  - `python -m pytest tests/test_false_green_vision.py tests/test_vision_multi.py -q`
-
-### B023 - Customer-Independent Eval Split
-
-- Kategorie: Evaluation
-- Prioritaet: P0
-- Aufwand: L
-- Abhaengigkeiten: B018
-- Ausgangslage: Risiko, dass Verbesserungen zu stark auf bekannte POC-Dokumente optimiert werden.
-- Dateien: `data/gold/`, `scripts/run_benchmark.py`, Dokumentation
-- Aufgaben:
-  - Gold-Daten in Train/Dev/Holdout trennen.
-  - Holdout enthaelt neue Layouts/Sprachen/Kunden, nicht im Prompt oder als Heuristik erlaubt.
-  - Benchmark zeigt getrennte Scores.
-- Akzeptanzkriterien:
-  - Holdout bleibt ungesehen fuer Implementierung.
-  - Release-Entscheidung nutzt Holdout-Metriken.
-- Validierung:
-  - Benchmark-Report zeigt Dev und Holdout separat.
-
-### B024 - Model/Prompt Eval Matrix
-
-- Kategorie: LLM/Eval
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B018, B019
-- Ausgangslage: Modell- oder Promptwechsel sind nicht systematisch vergleichbar.
-- Dateien: `src/llm/`, `prompts/`, `scripts/evaluate_prompts.py`
-- Aufgaben:
-  - Matrix aus Prompt-Version, Modell-Deployment, Temperatur, JSON/Schema-Modus definieren.
-  - Gold-Daten gegen Varianten laufen lassen.
-  - Metriken: Mapping Accuracy, JSON Fail Rate, Kosten, Latenz.
-- Akzeptanzkriterien:
-  - Promptwechsel ohne Eval ist nicht releasefaehig.
-  - Beste Variante wird datenbasiert gewaehlt.
-- Validierung:
-  - `python scripts/evaluate_prompts.py --gold data/gold`
-
-### B025 - Prompt Registry mit Versionen
-
-- Kategorie: LLM/DevEx
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B024
-- Ausgangslage: Prompts sind teils Datei, teils Code, ohne Version/Hash im Audit.
-- Dateien: `prompts/`, `src/llm/prompt_manager.py`, `src/mapping/llm_column_mapper.py`, Audit Trail
-- Aufgaben:
-  - Prompt-Metadaten einfuehren: Name, Version, Hash, Zweck, Input-Schema, Output-Schema.
-  - Jeder LLM-Call schreibt Prompt-Version und Hash in Audit/Metrics.
-  - Tests fuer stabile Prompt-Renderings.
-- Akzeptanzkriterien:
-  - Jeder Job ist prompt-reproduzierbar.
-  - Prompt-Aenderungen sind im Benchmark sichtbar.
-- Validierung:
-  - `python -m pytest tests/test_llm_column_mapper_prompt.py -q`
-
-### B026 - Parser Failure Taxonomy
-
-- Kategorie: Observability/QA
-- Prioritaet: P1
-- Aufwand: S/M
-- Abhaengigkeiten: B019
-- Ausgangslage: Parserfehler sind nicht standardisiert genug fuer Dashboards.
-- Dateien: `src/core/exceptions.py`, `src/ingestion/`, `src/api/pipeline_runner.py`
-- Aufgaben:
-  - Standardisierte Error Codes definieren: unsupported_format, bad_mime, no_table_found, ocr_low_confidence, row_count_mismatch usw.
-  - Pipeline speichert Stage und Error Code.
-  - Benchmark und UI zeigen Fehlerklassen.
-- Akzeptanzkriterien:
-  - Fehler sind aggregierbar.
-  - Keine rein freien Fehlertexte fuer bekannte Klassen.
-- Validierung:
-  - Tests fuer je einen Fehler pro Klasse.
-
-### B027 - Synthetic BOM Generator
-
-- Kategorie: Evaluation
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B018
-- Ausgangslage: Demo-Skripte existieren, aber kontrollierte Varianz ist begrenzt.
-- Dateien: `scripts/make_demo_boms.py`, neue `scripts/generate_synthetic_boms.py`
-- Aufgaben:
-  - Layoutvarianten generieren: Multi-Header, verschobene Spalten, Sprache, Trennzeichen, fehlende Werte, Einheiten.
-  - Expected JSON automatisch miterzeugen.
-  - Synthetic-Daten getrennt von realem Gold markieren.
-- Akzeptanzkriterien:
-  - Mindestens 50 synthetische BOM-Varianten generierbar.
-  - Benchmark kann synthetische Suite laufen lassen.
-- Validierung:
-  - `python scripts/generate_synthetic_boms.py --out data/synthetic --count 50`
-
-### B028 - Contract Tests API/Frontend
-
-- Kategorie: Testbarkeit
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B013
-- Ausgangslage: API- und Frontend-Typen koennen auseinanderlaufen.
-- Dateien: `src/api/main.py`, `frontend/src/lib/`, OpenAPI-Export-Skript
-- Aufgaben:
-  - OpenAPI-Schema im CI exportieren.
-  - TypeScript-Client oder Typen daraus generieren.
-  - Contract-Test fuer zentrale Endpunkte: upload, jobs, result, export, feedback, settings.
-- Akzeptanzkriterien:
-  - Frontend-Build bricht bei inkompatibler API-Aenderung.
-  - API-Schema ist versioniert.
-- Validierung:
-  - `npm run build` im Frontend nach Generierung.
-
-### B029 - Playwright E2E
-
-- Kategorie: UX/Test
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B013, B028
-- Ausgangslage: Keine sichtbaren Browser-E2E-Tests.
-- Dateien: `frontend/`, `tests/e2e/` oder `frontend/e2e/`, Docker/CI
-- Aufgaben:
-  - E2E: Login, Upload Demo-BOM, Jobstatus, Review Grid, Zellkorrektur, Export.
-  - Screenshots bei Fehlern speichern.
-  - Testdaten ohne echte Azure-Abhaengigkeit bereitstellen oder Backend mocken.
-- Akzeptanzkriterien:
-  - Kritischer Review-Workflow ist browserseitig abgesichert.
-  - CI kann E2E optional oder nightly laufen lassen.
-- Validierung:
-  - `Set-Location frontend; npx playwright test`
-
-### B030 - Performance Budget Test
-
-- Kategorie: Perf/UX
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B029
-- Ausgangslage: UI-Performance bei grossen BOMs wird nicht automatisiert begrenzt.
-- Dateien: `frontend/e2e/`, `frontend/src/components/review-grid.tsx`
-- Aufgaben:
-  - Grosses Fixture mit hunderten/tausenden Zeilen laden.
-  - Budgets fuer initial render, filter, edit, export click definieren.
-  - Regressionen in CI oder nightly melden.
-- Akzeptanzkriterien:
-  - Review-Grid bleibt fuer grosse BOMs bedienbar.
-  - Performance-Budgets sind dokumentiert.
-- Validierung:
-  - Playwright Performance Test.
+### Kritische Zero-False-Positive-Tickets
 
 ---
 
-## Phase 2: Canonical Document Model und Parser-Architektur
+### BUG-001: Check-2-Fallback "global_text_row_anchor" gibt den Prüfwert als "unabhängige Extraktion" zurück
 
-### B031 - Generic Canonical Document Model
+**Priority:** Critical
+**Effort:** L
+**Area:** pdf_value_extractor / pipeline
 
-- Kategorie: Ingestion/Architecture
-- Prioritaet: P0
-- Aufwand: L
-- Abhaengigkeiten: B018-B020
-- Ausgangslage: `ParsedBOM` ist bereits BOM-nah, aber nicht dokumentgenerisch genug fuer echte Formatunabhaengigkeit.
-- Dateien: `src/core/models.py`, neue `src/core/document_model.py`, `src/ingestion/`
-- Aufgaben:
-  - `DocumentGraph` definieren: document, pages, blocks, spans, tables, rows, cells, images, attachments.
-  - Jedes Element bekommt stabile ID, Source-Provenance, BBox/Zelladresse, Parser, Confidence, Rohtext.
-  - BOM-Projektion als separaten Schritt vom DocumentGraph nach `ParsedBOM` bauen.
-  - Rueckwaertskompatibilitaet fuer bestehende Pipeline sicherstellen.
-- Akzeptanzkriterien:
-  - PDF, Excel und CSV koennen DocumentGraph erzeugen.
-  - Bestehende Pipeline laeuft weiter ueber BOM Projection.
-- Validierung:
-  - `python -m pytest tests/test_coordinate_table.py tests/test_job_source_route.py -q`
+**Problem:**
+[pdf_value_extractor.py:320-339](src/scoring/pdf_value_extractor.py#L320-L339) — wenn keine Koordinaten-Location existiert, sucht `_extract_from_document_text_layer` einen Anker (Detail Number / Customer Part Number) im Text-Layer und prüft dann nur, ob der **gemappte Wert als Substring** im ±1-Zeilen-Kontext vorkommt (`_context_contains_expected_value`). Bei Treffer wird `extracted_value = mapped_value` zurückgegeben — Check 2 "extrahiert" also exakt den Wert, den es verifizieren soll, und Check 3 vergleicht den Wert anschließend mit sich selbst (immer MATCH). Zusätzlich: für numerische Werte < 4 Stellen greift die Relaxed-Core-Sperre ([Zeile 532-534](src/scoring/pdf_value_extractor.py#L532)) **nicht** für den ersten Pfad `expected_norm in context_norm` — eine "2" matcht jede 2 im Kontextfenster, auch innerhalb von "3520".
 
-### B032 - Parser Registry
+**Impact:**
+⚠️ ZERO-FALSE-POSITIVE RISK. Die "unabhängige" zweite Verifikation ist auf diesem Pfad zirkulär. Ein vom LLM falsch zugeordneter Wert, der zufällig irgendwo in den 3 Kontextzeilen vorkommt (Maße, Positionsnummern, Mengen anderer Spalten), gilt als verifiziert — mit Konfidenz ≥ 0.90, was zusätzlich BUG-003 auslöst.
 
-- Kategorie: Ingestion/Architecture
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B031
-- Ausgangslage: Routing ist zentral in `structure_normalizer.py` verdrahtet.
-- Dateien: `src/ingestion/structure_normalizer.py`, neue `src/ingestion/parser_registry.py`
-- Aufgaben:
-  - Parser-Interface definieren: `supports`, `parse_to_document_graph`, `parse_to_bom`.
-  - Registry nach MIME, Extension und Capability.
-  - Bestehende PDF/Excel/CSV-Parser als Registry-Parser migrieren.
-- Akzeptanzkriterien:
-  - Neue Formate lassen sich ohne Pipeline-Umbau registrieren.
-  - Unsupported Format liefert standardisierten Fehler.
-- Validierung:
-  - `python -m pytest tests/test_job_source_route.py tests/test_upload_security.py -q`
-
-### B033 - Layout-aware Table Graph
-
-- Kategorie: Ingestion
-- Prioritaet: P0
-- Aufwand: L
-- Abhaengigkeiten: B031, B032
-- Ausgangslage: Tabellen werden schnell in BOM-Zeilen projiziert, Strukturinformationen gehen teilweise verloren.
-- Dateien: `src/ingestion/coordinate_table.py`, `src/ingestion/excel_parser.py`, `src/core/document_model.py`
-- Aufgaben:
-  - Tabellen als Nodes mit Header-Spans, Row-Spans, Cell-Spans, Multi-Header und Merged-Cell-Info modellieren.
-  - BOM Projection nutzt Table Graph statt rohe Dict-Zeilen.
-  - Table-Structure-Metriken an Graph anbinden.
-- Akzeptanzkriterien:
-  - Multi-Header und Merged Cells bleiben nachvollziehbar.
-  - Source-Anker pro Zelle sind stabil.
-- Validierung:
-  - `python -m pytest tests/test_coordinate_table.py tests/test_header_detection.py -q`
-
-### B034 - Field Policy Matrix
-
-- Kategorie: QA/Architecture
-
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B031
-- Ausgangslage: Feldspezifische Regeln sind in Code und Scoring verstreut.
-- Dateien: `config/target_schema.json`, `src/scoring/green_gate.py`, `src/mapping/schema_registry.py`
-- Aufgaben:
-  - Pro Zielfeld Policy definieren: required, allow_green_from, needs_countercheck, needs_masterdata, transform_methods, source_evidence_level.
-  - Green Gate liest Policy statt hart verdrahteter Sonderlogik.
-  - Migration fuer bestehendes Schema schreiben.
-- Akzeptanzkriterien:
-  - Feldpolitiken sind konfigurierbar und auditierbar.
-  - Bestehende Zero-False-Positive-Tests bleiben gruen.
-- Validierung:
-  - `python -m pytest tests/test_zero_false_positive.py tests/test_scoring.py -q`
-
-### B035 - Multi-Sheet Excel Strategy
-
-- Kategorie: Ingestion
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B031
-- Ausgangslage: Excel-Auswahl ist nicht ausreichend robust fuer viele Sheet-Varianten.
-- Dateien: `src/ingestion/excel_parser.py`
-- Aufgaben:
-  - Sheet-Scorer bauen: Header-Dichte, BOM-Begriffe, Datenzeilen, Positionsmuster, leere Zeilen.
-  - Top-Kandidaten im Audit dokumentieren.
-  - Review-Hinweis bei unsicherem Sheet.
-- Akzeptanzkriterien:
-  - Richtige BOM-Sheets werden priorisiert.
-  - Unsicherheit fuehrt zu Gelb/Review statt stiller Falschauswahl.
-- Validierung:
-  - `python -m pytest tests/test_header_detection.py tests/test_job_source_route.py -q`
-
-### B036 - Excel Merged-Cell Propagation
-
-- Kategorie: Ingestion
-- Prioritaet: P1
-- Aufwand: S
-- Abhaengigkeiten: B033
-- Ausgangslage: Merged Cells koennen zu fehlenden Werten fuehren.
-- Dateien: `src/ingestion/excel_parser.py`
-- Aufgaben:
-  - Merged Ranges lesen und Ankerwert kontrolliert propagieren.
-  - Propagation im DocumentGraph markieren.
-  - Tests fuer Header- und Datenbereich unterscheiden.
-- Akzeptanzkriterien:
-  - Merged Header und Datenwerte gehen nicht verloren.
-  - Propagierte Werte sind im Audit als abgeleitet erkennbar.
-- Validierung:
-  - Excel-Parser-Tests mit Merged-Cell-Fixture.
-
-### B037 - Language Detection
-
-- Kategorie: Ingestion/LLM
-- Prioritaet: P1
-- Aufwand: S
-- Abhaengigkeiten: B031
-- Ausgangslage: Sprache wird nicht systematisch fuer Prompting und Metriken genutzt.
-- Dateien: `src/ingestion/`, `src/mapping/llm_column_mapper.py`, DocumentGraph
-- Aufgaben:
-  - Sprache pro Dokument, Tabelle und optional Spalte erkennen.
-  - Sprache in Mapping-Prompt und Audit aufnehmen.
-  - Benchmark nach Sprache auswerten.
-- Akzeptanzkriterien:
-  - Mehrsprachige Dokumente sind analysierbar.
-  - Prompt bekommt Sprachkontext ohne kundenhartes Mapping.
-- Validierung:
-  - Tests mit DE/EN/FR/IT/CN Headern.
-
-### B038 - Parser Ensemble Voting
-
-- Kategorie: QA/Ingestion
-- Prioritaet: P1
-- Aufwand: L
-- Abhaengigkeiten: B031-B033, B019
-- Ausgangslage: Hauptparser plus Fallback erkennt Konflikte nur begrenzt.
-- Dateien: `src/ingestion/`, `src/scoring/ensemble_scorer.py`
-- Aufgaben:
-  - Mehrere Parser-Spuren optional parallel ausfuehren: Textlayer, DI, Vision, Excel structural.
-  - Konfliktmatrix fuer Zeilenanzahl, Header, kritische Felder.
-  - Konflikte senken Confidence und erzeugen Review-Hinweise.
-- Akzeptanzkriterien:
-  - Parserblindheit sinkt, weil unabhaengige Spuren verglichen werden.
-  - Kosten/Latenz per Config begrenzbar.
-- Validierung:
-  - Benchmark zeigt Konfliktfaelle und Parser-Agreement.
-
-### B039 - DOCX/HTML/EML Parser
-
-- Kategorie: Ingestion
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B031, B032
-- Ausgangslage: Diese Formate sind nicht unterstuetzt.
-- Dateien: neue Parser in `src/ingestion/`, Upload-Routing, Tests
-- Aufgaben:
-  - DOCX: Tabellen und Paragraphen extrahieren.
-  - HTML: Tabellen, semantische Struktur, Encoding extrahieren.
-  - EML: Body und Attachments in Unterdokumente zerlegen.
-  - Alle Formate erzeugen DocumentGraph.
-- Akzeptanzkriterien:
-  - Upload akzeptiert nur aktiv implementierte Formate.
-  - BOM-Kandidaten aus DOCX/HTML/EML koennen in Review landen.
-- Validierung:
-  - Format-spezifische Parser-Tests.
-
-### B040 - Image Input
-
-- Kategorie: Ingestion
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B031, B046
-- Ausgangslage: Bilder werden nur indirekt ueber PDF-Rendering verarbeitet.
-- Dateien: Upload-Routing, `src/ingestion/`, OCR/Vision Parser
-- Aufgaben:
-  - PNG/JPG/TIFF Upload erlauben, wenn OCR/Vision konfiguriert ist.
-  - Image-Metadaten und Seitenmodell im DocumentGraph abbilden.
-  - Scan-Policy: ohne unabhaengige Verifikation kein Gruen.
-- Akzeptanzkriterien:
-  - Bilddateien koennen verarbeitet und reviewbar angezeigt werden.
-  - Green Gate bleibt konservativ.
-- Validierung:
-  - Image-Fixture mit OCR/Vision Mock.
-
-### B041 - ZIP/Bulk Upload
-
-- Kategorie: Ingestion/UX
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B032, B079
-- Ausgangslage: Ein Job verarbeitet eine Datei.
-- Dateien: `src/api/routes/upload.py`, Job Store, Frontend Upload
-- Aufgaben:
-  - ZIP sicher entpacken: ZipSlip-Schutz, Groessenlimit, Dateianzahl-Limit.
-  - Batch-Job mit Child-Jobs modellieren.
-  - UI fuer Batch-Status und Einzelresultate.
-- Akzeptanzkriterien:
-  - Mehrere BOMs koennen in einem Upload verarbeitet werden.
-  - Gefaehrliche ZIPs werden abgelehnt.
-- Validierung:
-  - Upload-Security-Tests fuer ZIP.
-
-### B042 - Multi-attachment Job Model
-
-- Kategorie: Product
-- Prioritaet: P2
-- Aufwand: L
-- Abhaengigkeiten: B041, B039
-- Ausgangslage: EML/ZIP mit mehreren Anhaengen braucht ein anderes Jobmodell.
-- Dateien: Job Store, API-Schemas, Frontend Jobliste
-- Aufgaben:
-  - Parent Job und Attachment Jobs modellieren.
-  - Pro Attachment Parser- und Ergebnisstatus speichern.
-  - UI zum Auswaehlen relevanter BOM-Kandidaten.
-- Akzeptanzkriterien:
-  - E-Mail mit mehreren Anhaengen ist nachvollziehbar reviewbar.
-  - Jeder Export gehoert zu einem konkreten Attachment.
-- Validierung:
-  - API- und UI-Tests fuer Parent/Child Jobs.
-
-### B043 - Excel Deterministic Green Policy Option
-
-- Kategorie: QA/Product
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B010, B034, B018
-- Ausgangslage: Nicht-PDF kann heute konservativ nicht Gruen werden, obwohl Excel deterministisch ist.
-- Dateien: `src/scoring/green_gate.py`, `config/target_schema.json`, Tests
-- Aufgaben:
-  - Policy-Flag fuer Excel-Gruen bei exakter Source-Cell-Provenance definieren.
-  - Nur fuer Felder mit deterministischer Transformation und Gold-Eval-Freigabe erlauben.
-  - UI erklaert Quelle: Excel Zelladresse statt PDF-BBox.
-- Akzeptanzkriterien:
-  - Excel kann bei starker Evidenz Gruen werden.
-  - Ohne Source Cell Provenance bleibt Gelb/Rot.
-- Validierung:
-  - `python -m pytest tests/test_zero_false_positive.py tests/test_scoring.py -q`
-
-### B044 - No-Green Modes pro Quelle
-
-- Kategorie: QA
-- Prioritaet: P0
-- Aufwand: S
-- Abhaengigkeiten: B034
-- Ausgangslage: Nicht-Gruen-Policies sind fuer Nutzer nicht transparent genug.
-- Dateien: `src/scoring/green_gate.py`, API Result Schema, Frontend Grid
-- Aufgaben:
-  - Pro Quelle/Feld erklaeren, warum Gruen verboten ist.
-  - API gibt `green_blocker_reason` aus.
-  - UI zeigt Grund im Detailpanel.
-- Akzeptanzkriterien:
-  - Reviewer versteht, warum Werte Gelb bleiben.
-  - Keine versteckten Policy-Entscheidungen.
-- Validierung:
-  - API-/Frontend-Tests fuer Blocker-Reason.
-
-### B045 - Multi-Format Upload-Vertrag dokumentieren
-
-- Kategorie: DevEx/Product
-- Prioritaet: P0
-- Aufwand: S
-- Abhaengigkeiten: B008-B010, B039-B041 je nach Freigabe
-- Ausgangslage: Erlaubte und tatsaechlich implementierte Formate koennen auseinanderlaufen.
-- Dateien: `README.md`, API OpenAPI, Frontend Upload Copy
-- Aufgaben:
-  - Tabelle: Format, Status, Parser, Green-Policy, bekannte Grenzen.
-  - Upload-UI nutzt dieselbe Liste wie Backend.
-  - Nicht implementierte Formate nicht bewerben.
-- Akzeptanzkriterien:
-  - Produktversprechen und Code stimmen ueberein.
-  - Neue Formate brauchen Update an einer zentralen Stelle.
-- Validierung:
-  - Review der Doku und Upload-Tests.
+**Suggested fix:**
+Substring-Containment durch token-gebundene Prüfung ersetzen (Wortgrenzen, keine Treffer über Zellgrenzen), kurze numerische Werte (< 4 Stellen) auf diesem Pfad grundsätzlich von GREEN ausschließen (nur UNCERTAIN/YELLOW), und `check2_reason=global_text_row_anchor` im Gate explizit als schwache Evidenz behandeln, die nie allein GREEN trägt.
 
 ---
 
-## Phase 3: Scan, OCR, Vision und unabhaengige Vollstaendigkeit
+### BUG-002: Mengen-Extraktion mit Bestätigungs-Bias ("expected in candidates → expected")
 
-### B046 - Azure Document Intelligence Layout Spur
+**Priority:** Critical
+**Effort:** M
+**Area:** pdf_value_extractor
 
-- Kategorie: Ingestion/OCR
-- Prioritaet: P0
-- Aufwand: L
-- Abhaengigkeiten: Azure DI Freigabe, B031, B019
-- Ausgangslage: Scan-PDFs haben keinen voll unabhaengigen Vollstaendigkeitsanker.
-- Dateien: neue `src/ingestion/document_intelligence_parser.py`, Config, Tests mit Mocks
-- Aufgaben:
-  - Azure Document Intelligence Layout/Read als optionale Parser-Spur integrieren.
-  - Tabellen, Zellen, Spans, BBox und Confidence in DocumentGraph ueberfuehren.
-  - Kosten, Endpoint und Region konfigurieren.
-  - Mock-basierte Tests ohne echte Azure-Calls.
-- Akzeptanzkriterien:
-  - DI kann als unabhaengige Spur gegen Vision/Textlayer verglichen werden.
-  - Ohne DI-Konfiguration bleibt System lauffaehig.
-- Validierung:
-  - `python -m pytest tests/test_document_intelligence*.py tests/test_false_green_vision.py -q`
+**Problem:**
+[pdf_value_extractor.py:341-367](src/scoring/pdf_value_extractor.py#L341-L367) — `_extract_quantity_value` sammelt alle Zahlen nach dem Anker im Kontextfenster und gibt `expected_int` zurück, **wenn er irgendwo unter den Kandidaten ist**. Ein 3-Zeilen-Fenster einer BOM enthält typischerweise Dutzende Zahlen (Maße "400x78x55", Positionen, Werkstoffnummern; `_parse_quantity_int` entfernt zudem alle Nicht-Ziffern: "4x10"→410, "M12"→12).
 
-### B047 - OCR Fallback lokal
+**Impact:**
+⚠️ ZERO-FALSE-POSITIVE RISK. Eine falsch gelesene Stückzahl (z. B. 4 statt 1) wird bestätigt, sobald die 4 zufällig im Kontext vorkommt — bei Design/Spare Count ist das exakt der gefürchtete Fehler (falsche Bestellmenge).
 
-- Kategorie: Ingestion/OCR
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: Docker-Dependency-Entscheidung, B031
-- Ausgangslage: OCR ist stark Cloud/Vision-abhaengig.
-- Dateien: Dockerfile, `src/ingestion/ocr_parser.py`, Config
-- Aufgaben:
-  - Lokale OCR-Option evaluieren: Tesseract oder PaddleOCR.
-  - Als dritte Parser-Spur, nicht als alleinige Gruen-Quelle.
-  - Docker-Installation und Timeout/Memory Limits definieren.
-- Akzeptanzkriterien:
-  - Lokale OCR kann Textspans fuer Review liefern.
-  - Schlechte OCR senkt Confidence statt Werte zu erfinden.
-- Validierung:
-  - OCR-Fixture mit Mock oder lokalem OCR, falls verfuegbar.
-
-### B048 - Unabhaengige Scan-Zaehlspur
-
-- Kategorie: QA/Ingestion
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B046 oder Vision-Zaehlimpuls, B022
-- Ausgangslage: Vision-Extraktion kann Zeilen uebersehen.
-- Dateien: `src/ingestion/pdf_parser.py`, `src/scoring/ensemble_scorer.py`, Audit Trail
-- Aufgaben:
-  - Separaten Count-Only-Schritt implementieren: Positionen/Zeilen zaehlen ohne Werte zu extrahieren.
-  - Ergebnis gegen extrahierte BOM-Zeilen vergleichen.
-  - Mismatch blockiert Gruen und erzeugt roten Vollstaendigkeitsbefund.
-- Akzeptanzkriterien:
-  - Scan-Dokumente mit fehlenden Zeilen werden erkannt.
-  - Audit zeigt erwartete und extrahierte Zaehler.
-- Validierung:
-  - `python -m pytest tests/test_false_green_vision.py tests/test_vision_multi.py -q`
-
-### B049 - Adaptive Dual Extraction
-
-- Kategorie: Perf/QA
-
-- Prioritaet: P1
-- Aufwand: M/L
-- Abhaengigkeiten: B019, B048
-- Ausgangslage: Vision-Dual-Extraction kann teuer sein und trotzdem gleiche Fehler duplizieren.
-- Dateien: `src/ingestion/pdf_parser.py`, Config
-- Aufgaben:
-  - Dual Extraction nur fuer kritische oder unsichere Seiten/Felder erzwingen.
-  - Wenn Count-Spur und erste Extraktion stabil sind, zweite Extraktion sparen.
-  - Benchmark prueft Kosten/Qualitaet.
-- Akzeptanzkriterien:
-  - Kosten sinken ohne False-Green-Anstieg.
-  - Unsichere Faelle bleiben konservativ.
-- Validierung:
-  - Benchmark mit Kosten- und Accuracy-Vergleich.
-
-### B050 - Countercheck fuer Borderline Green
-
-- Kategorie: QA/LLM
-- Prioritaet: P0
-- Aufwand: S/M
-- Abhaengigkeiten: B025, B034
-- Ausgangslage: Countercheck ist config-seitig deaktiviert oder nicht gezielt genug.
-- Dateien: `config/app_config.yaml`, `src/scoring/ensemble_scorer.py`, `src/scoring/vision_verifier.py`
-- Aufgaben:
-  - Countercheck fuer potenzielle Gruen-Kandidaten mit Risiko aktivieren.
-  - Scope begrenzen: nur kritische Felder, Scan, niedrige Margin, Parser-Konflikt.
-  - Ergebnis in Audit und UI sichtbar machen.
-- Akzeptanzkriterien:
-  - Riskante Gruen-Kandidaten brauchen unabhaengige Bestaetigung.
-  - Kosten bleiben kontrollierbar.
-- Validierung:
-  - `python -m pytest tests/test_false_green_vision.py tests/test_zero_false_positive.py -q`
-
-### B051 - Reranker fuer Source Anchors
-
-- Kategorie: RAG/QA
-- Prioritaet: P2
-- Aufwand: M
-- Abhaengigkeiten: B031, B063
-- Ausgangslage: Source-Anker-Kandidaten koennen bei aehnlichen Werten unsicher sein.
-- Dateien: `src/scoring/pdf_value_extractor.py`, neuer Reranker-Service
-- Aufgaben:
-  - Kandidatenzeilen aus Text/Graph sammeln.
-  - Cross-Encoder oder leichtgewichtigen Reranker optional einsetzen.
-  - Nur zur Evidenzverbesserung, nicht zum Erfinden von Werten.
-- Akzeptanzkriterien:
-  - Falsche Anchors sinken in Gold-Eval.
-  - Reranker-Unsicherheit fuehrt zu Gelb.
-- Validierung:
-  - Benchmark Source-Anchor Accuracy.
-
-### B052 - Safe Prompt Logging
-
-- Kategorie: Observability/Security
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B025, B060
-- Ausgangslage: Vollstaendige Prompt-Reproduzierbarkeit fehlt, direkte Promptlogs koennen sensible Daten enthalten.
-- Dateien: `src/llm/`, Audit/Metrics Store
-- Aufgaben:
-  - Redacted Prompt/Event Store einfuehren.
-  - Prompt-Hash, Input-Hash, Model, Deployment, Token, Latenz speichern.
-  - Sensible Tabellenwerte optional maskieren.
-- Akzeptanzkriterien:
-  - LLM-Calls sind reproduzierbar, ohne unnoetig Daten zu leaken.
-  - Debug-Modus kann kontrolliert mehr Details speichern.
-- Validierung:
-  - Tests fuer Redaction und Hash-Stabilitaet.
-
-### B053 - PII Detection/Minimization
-
-- Kategorie: Compliance
-- Prioritaet: P1
-- Aufwand: L
-- Abhaengigkeiten: Datenschutz-Policy, B052
-- Ausgangslage: Dokumentinhalt wird fuer LLM/OCR verarbeitet, Minimierung ist nicht systematisch.
-- Dateien: `src/llm/`, `src/ingestion/`, Config
-- Aufgaben:
-  - PII-Erkennung fuer offensichtliche E-Mails, Telefonnummern, Namen, Adressen optional einfuehren.
-  - Redaction vor LLM fuer nicht benoetigte Felder ermoeglichen.
-  - Audit speichert, ob Redaction angewendet wurde.
-- Akzeptanzkriterien:
-  - Nicht benoetigte personenbezogene Daten koennen minimiert werden.
-  - BOM-relevante Werte bleiben extrahierbar.
-- Validierung:
-  - Redaction-Tests mit Beispieltexten.
-
-### B054 - Robust File Quarantine
-
-- Kategorie: Security
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B007, Zielplattform
-- Ausgangslage: Uploads werden nach Basisvalidierung direkt verarbeitet.
-- Dateien: `src/api/routes/upload.py`, Job Store, optional AV-Integration
-- Aufgaben:
-  - Quarantine-Status vor Processing einfuehren.
-  - Optional ClamAV oder Plattform-AV anbinden.
-  - Abgelehnte Dateien mit sicherem Fehlerstatus speichern.
-- Akzeptanzkriterien:
-  - Unsichere Dateien erreichen Parser nicht.
-  - Quarantine-Status ist im Job sichtbar.
-- Validierung:
-  - Upload-Tests mit blockierten Dateien.
-
-### B055 - Handwriting/ICR Policy
-
-- Kategorie: Ingestion/OCR
-- Prioritaet: P2
-- Aufwand: M
-- Abhaengigkeiten: Geschaeftlicher Bedarf, B046
-- Ausgangslage: Handschrift ist nicht als Scope definiert.
-- Dateien: Doku, Parser Policy, UI Hinweise
-- Aufgaben:
-  - Entscheiden, ob Handschrift relevant ist.
-  - Falls ja: Azure DI Read/ICR-Faehigkeiten evaluieren.
-  - Policy: Handschrift niemals automatisch Gruen ohne Review.
-- Akzeptanzkriterien:
-  - Produktversprechen ist ehrlich.
-  - Handschriftliche Werte werden reviewbar, nicht blind uebernommen.
-- Validierung:
-  - Dokumentierte Entscheidung und optional Fixture.
+**Suggested fix:**
+Nur die Zahl an der erwarteten Spaltenposition akzeptieren (x-Korridor), nicht "irgendwo im Fenster"; `_parse_quantity_int` darf gemischte Tokens nicht zu Ganzzahlen kollabieren; bei mehreren Kandidaten immer UNCERTAIN.
 
 ---
 
-## Phase 4: LLM, RAG, Wissen und Mapping-Qualitaet
+### BUG-003: Hochkonfidenter Text-Fallback streicht Lock-2-Vetos (Koordinaten-Mismatch, Spaltenkonflikt)
 
-### B056 - Structured Outputs JSON Schema
+**Priority:** Critical
+**Effort:** S
+**Area:** ensemble_scorer
 
-- Kategorie: LLM
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B025
-- Ausgangslage: JSON Mode reduziert Fehler, garantiert aber kein vollstaendiges Schema.
-- Dateien: `src/llm/base.py`, `src/llm/azure_openai.py`, `src/mapping/llm_column_mapper.py`
-- Aufgaben:
-  - Pydantic-Modelle als Output-Schema fuer LLM-Antworten definieren.
-  - Azure Structured Outputs nutzen, falls Deployment es unterstuetzt.
-  - Fallback: Validierung und gezielte Repair-Prompts.
-- Akzeptanzkriterien:
-  - Mapping- und Vision-Outputs validieren gegen Schema.
-  - Ungueltige Outputs erzeugen kontrollierte Gelb/Rot-Pfade.
-- Validierung:
-  - `python -m pytest tests/test_llm_column_mapper_prompt.py tests/test_azure_openai.py -q`
+**Problem:**
+[ensemble_scorer.py:341-349](src/scoring/ensemble_scorer.py#L341-L349) — wenn `extraction.reason == "global_text_row_anchor"` mit Konfidenz ≥ 0.90 und MATCH, werden die harten Vetos `PDF_COORDINATE_MISMATCH` und `PDF_COLUMN_CONFLICT` **entfernt**. Die präzise Koordinaten-Verifikation (Lock 2) hat einen Widerspruch gefunden — und der deutlich schwächere Volltext-Fallback (BUG-001) überstimmt sie.
 
-### B057 - Tool/Function Calling fuer Mapping
+**Impact:**
+⚠️ ZERO-FALSE-POSITIVE RISK. Genau der Fall "Wert existiert im Dokument, steht aber in der falschen Spalte/Zeile" (Spalten-Bleeding, das Kernrisiko bei BOM-Tabellen) wird entschärft statt eskaliert. In Kombination mit BUG-001 kann eine nachweislich widersprüchliche Zelle GRÜN werden.
 
-- Kategorie: LLM
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B056
-- Ausgangslage: Mapping kommt als freies JSON mit Kandidaten.
-- Dateien: `src/mapping/llm_column_mapper.py`, Prompt Registry
-- Aufgaben:
-  - Funktionen definieren: `propose_mapping`, `mark_unmapped`, `request_more_evidence`.
-  - LLM muss pro Mapping Evidenzspalten und Beispielwerte nennen.
-  - Validator prueft Function-Output.
-- Akzeptanzkriterien:
-  - LLM kann bewusst `unmapped` sagen.
-  - Weniger erzwungene Fehlzuordnungen.
-- Validierung:
-  - Mapping-Prompt- und Validator-Tests.
-
-### B058 - Multi-Model Routing
-
-- Kategorie: LLM/Perf
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B024
-- Ausgangslage: Main/Mini-Modelle sind vorhanden, Routing ist noch grob.
-- Dateien: `src/llm/azure_openai.py`, Config, LLM Call Sites
-- Aufgaben:
-  - Routing-Policy: cheap text tasks, high-accuracy mapping, vision extraction, verifier.
-  - Pro Stage Modell, max tokens, temperature, timeout konfigurierbar.
-  - Benchmark vergleicht Qualitaet, Kosten, Latenz.
-- Akzeptanzkriterien:
-  - Teure Modelle werden nur dort genutzt, wo sie messbar helfen.
-  - Modellwechsel braucht keine Codeaenderung.
-- Validierung:
-  - Prompt/Model Eval Matrix.
-
-### B059 - LLM Call Cache
-
-- Kategorie: Perf/Cost
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B025, B052
-- Ausgangslage: Wiederholte identische Calls kosten erneut Geld und Zeit.
-- Dateien: `src/llm/`, SQLite/Cache Store
-- Aufgaben:
-  - Cache-Key aus Prompt-Hash, Modell, Parametern, Input-Hash bilden.
-  - Nur fuer idempotente Calls und Test/Benchmark standardmaessig aktivieren.
-  - Cache-Bypass fuer Produktivfaelle konfigurierbar.
-- Akzeptanzkriterien:
-  - Benchmark-Re-Runs sind deutlich guenstiger.
-  - Keine Vermischung verschiedener Prompt-/Modellversionen.
-- Validierung:
-  - Tests fuer Cache Hit/Miss.
-
-### B060 - LLM Cost Accounting
-
-- Kategorie: Observability/Perf
-- Prioritaet: P1
-- Aufwand: S/M
-- Abhaengigkeiten: B052
-- Ausgangslage: Tokens sind im Response-Modell vorhanden, aber keine zentrale Kostenansicht.
-- Dateien: `src/llm/`, Job Store, Settings/System UI
-- Aufgaben:
-  - Token und Kosten pro Job, Stage und Modell speichern.
-  - Preislisten konfigurierbar machen.
-  - UI/System-Endpunkt zeigt Kosten pro Job und Zeitraum.
-- Akzeptanzkriterien:
-  - Kosten pro Dokument sind nachvollziehbar.
-  - Auffaellige Kosten-Spikes werden sichtbar.
-- Validierung:
-  - Tests fuer Kostenberechnung.
-
-### B061 - Retrieval fuer Korrekturen
-
-- Kategorie: RAG/Knowledge
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B087, B052
-- Ausgangslage: Feedback wird nur begrenzt als Few-Shot-Quelle genutzt.
-- Dateien: `src/export/feedback_store.py`, `src/mapping/llm_column_mapper.py`, neuer Retrieval Store
-- Aufgaben:
-  - Korrekturen nach Kunde, Feld, Quellspalte, Wertmuster indexieren.
-  - Hybrid Retrieval: exakte Keys plus fuzzy/dense optional.
-  - Nur relevante, auditierte Korrekturen in Prompt aufnehmen.
-- Akzeptanzkriterien:
-  - Wiederkehrende Korrekturen verbessern Mapping/Transform.
-  - Keine unkontrollierte Kundenformat-Hardcodierung.
-- Validierung:
-  - Learning-Loop-Tests.
-
-### B062 - Stammdaten Semantic Search
-
-- Kategorie: RAG/Knowledge
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: Masterdata-Policy
-- Ausgangslage: Masterdata nutzt Alias/Fuzzy, keine semantische Suche.
-- Dateien: `src/transform/master_data_matcher.py`, `config/master_data/`
-- Aufgaben:
-  - Hybrid Search fuer Werkstoffe, Beschichtungen, Hersteller, Teilegruppen.
-  - Treffer muessen Evidenz und Match-Typ liefern.
-  - Schwellen so setzen, dass unsichere Treffer Gelb bleiben.
-- Akzeptanzkriterien:
-  - Long-Tail-Bezeichnungen werden besser erkannt.
-  - False Material Matches steigen nicht.
-- Validierung:
-  - `python -m pytest tests/test_master_data_matcher.py -q`
-
-### B063 - Hybrid Retrieval fuer Dokumentkontext
-
-- Kategorie: RAG/Knowledge
-- Prioritaet: P2
-- Aufwand: L
-- Abhaengigkeiten: B031, B052
-- Ausgangslage: Dokumentkontext wird nicht als durchsuchbarer Index modelliert.
-- Dateien: neuer `src/retrieval/`, DocumentGraph Store
-- Aufgaben:
-  - BM25/dense Index fuer Spans, Tabellenzellen und Seitenbereiche aufbauen.
-  - Query fuer Source-Anker und Erklaerungen nutzen.
-  - Passage IDs und Page Anchors im Audit speichern.
-- Akzeptanzkriterien:
-  - Source-Suche ist robuster bei grossen Dokumenten.
-  - Retrieval-Ergebnisse sind zitierbar.
-- Validierung:
-  - Source-Anchor-Benchmark.
-
-### B064 - Multimodale Layout Retrieval Option
-
-- Kategorie: RAG/Knowledge
-- Prioritaet: P2
-- Aufwand: L
-- Abhaengigkeiten: B063, B046
-- Ausgangslage: Layout- und Bildinformation wird nicht fuer Retrieval kombiniert.
-- Dateien: `src/retrieval/`, OCR/Vision Artefakte
-- Aufgaben:
-  - Layoutfeatures wie BBox, Seite, Tabellenregion, Bildausschnitt indexieren.
-  - Optional Vision-Embeddings evaluieren.
-  - Nur einsetzen, wenn Gold-Eval Nutzen zeigt.
-- Akzeptanzkriterien:
-  - Komplexe Layouts koennen besser verankert werden.
-  - Keine Pflichtinfrastruktur ohne messbaren Nutzen.
-- Validierung:
-  - Eval gegen Layout-schwere Gold-Dokumente.
-
-### B065 - Query Rewriting / Multi-Hop Retrieval
-
-- Kategorie: RAG/Knowledge
-- Prioritaet: P2
-- Aufwand: M
-- Abhaengigkeiten: B063
-- Ausgangslage: Retrieval-Fragen sind noch nicht systematisch optimiert.
-- Dateien: `src/retrieval/`, Prompt Registry
-- Aufgaben:
-  - Feldspezifische Suchanfragen aus Zielschema, Aliasen und Sprachen generieren.
-  - Multi-Hop nur fuer Felder mit verstreuter Evidenz nutzen.
-  - Eval prueft Nutzen pro Feld.
-- Akzeptanzkriterien:
-  - Bessere Treffer fuer seltene Felder ohne mehr False Positives.
-  - Kosten bleiben begrenzt.
-- Validierung:
-  - Retrieval-Eval.
-
-### B066 - Agentic Orchestration optional
-
-- Kategorie: LLM/Architecture
-- Prioritaet: P2
-- Aufwand: L
-- Abhaengigkeiten: B018, B025, B056
-- Ausgangslage: Pipeline ist deterministisch orchestriert, Agenten koennten fuer Sonderfaelle helfen, aber Risiko fuer Nichtdeterminismus bringen.
-- Dateien: neue optionale Orchestrierungsschicht, nicht Kernpipeline ersetzen
-- Aufgaben:
-  - Nur fuer Diagnose/Review-Hilfe evaluieren, nicht fuer automatische Gruen-Entscheidung.
-  - Agent darf Tools nutzen: source lookup, masterdata lookup, explain uncertainty.
-  - Alle Agent-Aktionen auditieren.
-- Akzeptanzkriterien:
-  - Agent verbessert Reviewer-Produktivitaet, ohne Kernqualitaetsgarantien zu schwaechen.
-  - Standardpipeline bleibt reproduzierbar.
-- Validierung:
-  - A/B Review-Eval oder interne Studie.
+**Suggested fix:**
+Hierarchie umkehren: ein Koordinaten-Veto (starke, ortsgebundene Evidenz) darf nie von einer ortsungebundenen Volltext-Bestätigung überschrieben werden. Veto-Strippen entfernen; stattdessen YELLOW mit beiden Evidenzen im Audit.
 
 ---
 
-## Phase 5: Scoring, Policies, Transformation und Output-Qualitaet
+### BUG-004: Customer Part Number — "verified via global pdf text layer" per Substring über das gesamte Dokument
 
-### B067 - Unit System Engine
+**Priority:** Critical
+**Effort:** M
+**Area:** value_comparator / ensemble_scorer
 
-- Kategorie: Transform
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: Gold-Daten mit Einheiten
-- Ausgangslage: Einheitentransformationen sind nicht als zentrale Unit Engine modelliert.
-- Dateien: `src/transform/value_transformer.py`, `config/master_data/units.json`
-- Aufgaben:
-  - Pint oder eigene streng begrenzte Unit-Engine einfuehren.
-  - Feldspezifische erlaubte Einheiten und Zielkonversion definieren.
-  - Audit zeigt Originalwert, Zielwert, Faktor und Methode.
-- Akzeptanzkriterien:
-  - mm/inch/kg/lbs-Konversionen sind reproduzierbar.
-  - Unsichere Einheit wird nicht Gruen.
-- Validierung:
-  - `python -m pytest tests/test_transform.py tests/test_dimension_compare.py -q`
+**Problem:**
+[value_comparator.py:649-667](src/scoring/value_comparator.py#L649-L667) — `_customer_part_number_verified_via_text_layer` prüft `expected_core in document_core`, wobei `document_core` das **komplette Dokument** als eine zusammengezogene alphanumerische Zeichenkette ist. Treffer können über Token-/Zellen-/Zeilengrenzen hinweg entstehen; Zeilen-Lokalität wird nicht geprüft. Das Ergebnis wird als `strict_exact_match=True` MATCH zurückgegeben, und [ensemble_scorer.py:304-317](src/scoring/ensemble_scorer.py#L304-L317) setzt darauf `check2_found=True` mit hoher Konfidenz — Kategorie A wird damit GREEN-fähig.
 
-### B068 - Manufacturer Catalog
+**Impact:**
+⚠️ ZERO-FALSE-POSITIVE RISK. Die Teilenummer von Zeile 12 "verifiziert" die Zelle von Zeile 5; bei kundentypisch ähnlichen Teilenummern (gemeinsame Präfixe) entstehen falsche Bestätigungen. Eine vertauschte Teilenummer ist für den Einkäufer kaum erkennbar — Worst Case fürs Vertrauen.
 
-- Kategorie: Transform
-
-- Prioritaet: P2
-- Aufwand: M
-- Abhaengigkeiten: Stammdaten vom Fachbereich
-- Ausgangslage: Hersteller-/Katalogwerte koennen schwer eindeutig sein.
-- Dateien: `config/master_data/`, `src/transform/master_data_matcher.py`
-- Aufgaben:
-  - Herstellerstammdaten mit Aliasen, Schreibweisen und Normlieferanten pflegen.
-  - Matcher mit exakter, fuzzy und optional semantischer Suche anbinden.
-  - Unsichere Treffer reviewpflichtig lassen.
-- Akzeptanzkriterien:
-  - Herstellerfelder werden konsistenter normalisiert.
-  - Kein kundenhartes Mapping.
-- Validierung:
-  - Masterdata-Matcher-Tests.
-
-### B069 - Governance fuer Green Schwellen
-
-- Kategorie: QA/Compliance
-
-- Prioritaet: P1
-- Aufwand: S
-- Abhaengigkeiten: B006, B083
-- Ausgangslage: Schwellenwerte koennen Qualitaetsversprechen aufweichen.
-- Dateien: `config/app_config.yaml`, `src/api/routes/settings.py`, Audit Log
-- Aufgaben:
-  - Schwellenwert-Aenderungen nur Admin.
-  - Jede Aenderung braucht Grund und wird auditiert.
-  - Optional Mindestgrenzen fuer Green Threshold hardcoden oder validieren.
-- Akzeptanzkriterien:
-  - Qualitaetsgates koennen nicht unbemerkt abgesenkt werden.
-  - Audit zeigt alte/neue Werte.
-- Validierung:
-  - Settings-Tests.
-
-### B070 - Structured Output Post-Processing
-
-- Kategorie: QA
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B056
-- Ausgangslage: LLM-Ausgaben brauchen deterministische Normalisierung und harte Validierung.
-- Dateien: `src/mapping/`, `src/transform/`, `src/scoring/`
-- Aufgaben:
-  - Alle KI-Ausgaben durch Pydantic und domain validators schleusen.
-  - Reparierte oder unsichere KI-Ausgaben im Audit markieren.
-  - Keine reparierte KI-Ausgabe darf allein Gruen erzeugen.
-- Akzeptanzkriterien:
-  - Ungueltige KI-Ausgaben failen kontrolliert.
-  - Repairs sind sichtbar und konservativ bewertet.
-- Validierung:
-  - LLM Mapper und Zero-False-Positive-Tests.
-
-### B071 - Completeness Verdict erweitern
-
-- Kategorie: QA/Export
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B020, B048
-- Ausgangslage: Export-Guard ist stark, soll aber mit Parser-/Count-Spuren zusammengefuehrt werden.
-- Dateien: `src/scoring/ensemble_scorer.py`, `src/export/excel_exporter.py`
-- Aufgaben:
-  - Vollstaendigkeitsurteil aus row bands, positions, count-only OCR und expected rows kombinieren.
-  - Export blockiert bei nicht erklaerter Unterextraktion.
-  - Audit unterscheidet: source incomplete, parser incomplete, reviewer excluded.
-- Akzeptanzkriterien:
-  - Keine unerklaerte Zeile geht im Export verloren.
-  - Reviewer-Ausschluesse bleiben erlaubt und auditiert.
-- Validierung:
-  - `python -m pytest tests/test_export_zero_data_loss.py tests/test_b3_coverage_guard.py -q`
-
-### B072 - Citation Coverage Metric
-
-- Kategorie: QA/Observability
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B031, B019
-- Ausgangslage: Provenance ist vorhanden, aber nicht als Kennzahl gefuehrt.
-- Dateien: Benchmark, Audit Trail, Metrics
-- Aufgaben:
-  - Anteil Zellen mit harter Source-Provenance messen.
-  - Nach Feld, Format und Parser auswerten.
-  - Release-Gate fuer kritische Felder definieren.
-- Akzeptanzkriterien:
-  - Output-Qualitaet ist nicht nur Ampel, sondern auch Zitierabdeckung.
-  - Felder ohne Quelle bleiben reviewpflichtig.
-- Validierung:
-  - Benchmark-Report enthaelt Citation Coverage.
-
-### B073 - Explanation Export
-
-- Kategorie: UX/Compliance
-- Prioritaet: P2
-- Aufwand: M
-- Abhaengigkeiten: B072, B085
-- Ausgangslage: Audit Sheet ist technisch, nicht unbedingt management- oder kundenlesbar.
-- Dateien: `src/export/`, neue Report Templates
-- Aufgaben:
-  - PDF/HTML-Pruefbericht je Job erzeugen: Zusammenfassung, Ampelverteilung, Risiken, Quellenabdeckung.
-  - Keine sensiblen Rohdaten unnoetig ausgeben.
-  - Download-Endpunkt und UI-Link.
-- Akzeptanzkriterien:
-  - Reviewer kann Ergebnis erklaerbar weitergeben.
-  - Bericht ist konsistent mit Audit Trail.
-- Validierung:
-  - Export-Test fuer Report.
-
-### B074 - Output Schema Versioning
-
-- Kategorie: QA/DevEx
-- Prioritaet: P1
-- Aufwand: S/M
-- Abhaengigkeiten: B034
-- Ausgangslage: Zielschemata koennen sich aendern, Versionierung muss durchgaengig sein.
-- Dateien: `config/target_schema.json`, `src/mapping/schema_registry.py`, Audit/Export
-- Aufgaben:
-  - Schema-Version in jedem Job und Export speichern.
-  - Migration/Validation fuer Schema-Aenderungen.
-  - Benchmark nach Schema-Version auswerten.
-- Akzeptanzkriterien:
-  - Alte Jobs bleiben interpretierbar.
-  - Neue Felder brechen Pipeline nicht still.
-- Validierung:
-  - Schema-Registry-Tests.
-
-### B075 - Release Quality Gate
-
-- Kategorie: QA/CI
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B013, B019, B021, B071
-- Ausgangslage: Es gibt keine einheitliche Release-Freigabe fuer Qualitaetsmetriken.
-- Dateien: CI, Benchmark Runner, README
-- Aufgaben:
-  - Gate definieren: Tests gruen, false green = 0, export data loss = 0, Mindestwerte fuer Gold-Eval.
-  - CI-Job fuer Release-Kandidaten.
-  - Report als Artefakt speichern.
-- Akzeptanzkriterien:
-  - Releases koennen datenbasiert freigegeben werden.
-  - Qualitaetsverschlechterungen blockieren.
-- Validierung:
-  - CI lokal simulieren.
+**Suggested fix:**
+Verifikation auf die per Anker gematchte Zeile begrenzen (Zeilen-Kontext statt Dokument-Kern), Mindestlänge für den Kern (≥ 6 Zeichen), `strict_exact_match=True` nur bei tokenweisem Treffer in der eigenen Zeile.
 
 ---
 
-## Phase 6: Observability, Plattform, Persistenz und Skalierung
+### BUG-005: Produktions-Config deaktiviert Schutzmechanismen (Counter-Check aus, Schwellen gesenkt)
 
-### B076 - OpenTelemetry Tracing
+**Priority:** Critical
+**Effort:** S
+**Area:** config / scoring
 
-- Kategorie: Observability
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: Ziel-Observability-Plattform
-- Ausgangslage: Logs und Job-Metrics sind vorhanden, aber keine End-to-End-Traces.
-- Dateien: `src/api/pipeline_runner.py`, `src/llm/`, `src/ingestion/`, `src/scoring/`
-- Aufgaben:
-  - Traces fuer parse, map, validate, transform, reconcile, score, export.
-  - LLM-Calls mit Modell, Token, Latenz, Prompt-Hash.
-  - Trace-ID im Job speichern und UI/System anzeigen.
-- Akzeptanzkriterien:
-  - Ein Job ist stageweise nachvollziehbar.
-  - Langsame oder fehlerhafte Stages sind schnell lokalisierbar.
-- Validierung:
-  - Trace-Exporter in Dev oder Console-Exporter testen.
+**Problem:**
+[config/app_config.yaml:13-24](config/app_config.yaml#L13-L24) weicht vom dokumentierten Sicherheitsdesign ab:
+- `enable_counter_check: false` — der Vision-Counter-Check (CHECK5) läuft in Produktion **nie**; der Verified-Scan-GREEN-Pfad ist damit tot (konservativ), aber der Text-Pfad verliert seine letzte unabhängige Bild-Verifikation.
+- `conservative_mode: false` (CLAUDE.md: `true`).
+- `verify_green_threshold: 0.90` (Code-Default 0.95), `green_extraction_min_confidence: 0.70` (Default 0.80) — JSON-reparierte Extraktionen (Konfidenz-Cap 0.86) bleiben dadurch GREEN-fähig.
+- `soft_vetoes_as_yellow: true` — Koordinaten-Mismatches werden für die Klassifikation RED→YELLOW herabgestuft.
+- `empty_non_required_as_neutral: true` — siehe BUG-013.
 
-### B077 - Metrics + Dashboards
+**Impact:**
+⚠️ ZERO-FALSE-POSITIVE RISK (kumulativ). Jede einzelne Lockerung ist begründbar; in Summe ist der "Triple-Lock" in Produktion ein Single-Lock mit gesenkten Schwellen — und niemand sieht das im Dashboard.
 
-- Kategorie: Observability
-- Prioritaet: P0
-- Aufwand: M
-- Abhaengigkeiten: B076
-- Ausgangslage: Keine vollstaendige Betriebsmetrik-Oberflaeche.
-- Dateien: Metrics Middleware, Settings/System UI, optional Prometheus/App Insights
-- Aufgaben:
-  - Metriken: Jobdauer, Queue-Laenge, Parser-Methode, Fehlercode, Green/Yellow/Red, Token, Kosten, 429.
-  - Dashboard-Definition dokumentieren.
-  - Alerts fuer Fehlerrate, Kosten, Latenz.
-- Akzeptanzkriterien:
-  - Betrieb kann Gesundheit und Kosten sehen.
-  - Drift und Fehleranstieg werden sichtbar.
-- Validierung:
-  - Metrics-Endpunkt oder App Insights Telemetrie pruefen.
-
-### B078 - Drift Detection
-
-- Kategorie: Evaluation
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B077, B087
-- Ausgangslage: Format- und Qualitaetsdrift wird nicht historisch erkannt.
-- Dateien: Metrics Store, Analyse-Skripte, Admin UI
-- Aufgaben:
-  - Green Rate, Correction Rate, Parser Failure Rate pro Kunde/Format/Feld speichern.
-  - Drift-Regeln definieren.
-  - Admin-Hinweise bei auffaelligen Veraenderungen.
-- Akzeptanzkriterien:
-  - Neue Kundenformate mit schlechterer Qualitaet fallen frueh auf.
-  - Drift fuehrt zu Review, nicht zu falschem Gruen.
-- Validierung:
-  - Simulierter Drift in Tests/Skript.
-
-### B079 - Dead Letter / Retry UI
-
-- Kategorie: Platform
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B026, B077
-- Ausgangslage: Fehlgeschlagene Jobs muessen oft neu hochgeladen werden.
-- Dateien: Job Store, `src/api/routes/jobs.py`, Frontend Jobliste
-- Aufgaben:
-  - Retry ab letzter sicherer Stage oder kompletter Retry vom gespeicherten Upload.
-  - Dead-Letter-Status mit Fehlerklasse.
-  - UI-Button fuer Retry, nur berechtigte Rollen.
-- Akzeptanzkriterien:
-  - Operative Fehler koennen kontrolliert erneut laufen.
-  - Retry erzeugt neuen Audit-Eintrag.
-- Validierung:
-  - Job-Queue- und API-Tests.
-
-### B080 - External Worker Option
-
-- Kategorie: Platform/Scale
-- Prioritaet: P1
-- Aufwand: L
-- Abhaengigkeiten: B079, Zielvolumen
-- Ausgangslage: In-process Queue ist fuer Single Instance gut, aber begrenzt skalierbar.
-- Dateien: `src/api/job_queue.py`, Worker Entrypoint, Docker Compose
-- Aufgaben:
-  - Option fuer externen Worker mit Redis/RQ/Dramatiq/Celery evaluieren.
-  - API und Worker entkoppeln, ohne lokalen Dev zu erschweren.
-  - Idempotenz und Job-Locking sicherstellen.
-- Akzeptanzkriterien:
-  - Mehrere Jobs koennen skaliert verarbeitet werden.
-  - Single-Instance-Dev bleibt einfach.
-- Validierung:
-  - Integrationstest mit Worker.
-
-### B081 - Blob Storage statt Local Files
-
-- Kategorie: Platform
-- Prioritaet: P1
-- Aufwand: M/L
-- Abhaengigkeiten: Azure Storage, B001
-- Ausgangslage: Uploads/Exports liegen lokal unter `data/`.
-- Dateien: Storage-Abstraktion, `src/api/routes/upload.py`, Export
-- Aufgaben:
-  - Storage-Interface fuer local und Azure Blob.
-  - Uploads, Exports, Reports und Audit-Artefakte ueber Interface speichern.
-  - SAS/Download-Policy definieren.
-- Akzeptanzkriterien:
-  - Produktivdaten sind nicht an Container-Filesystem gebunden.
-  - Lokalbetrieb bleibt moeglich.
-- Validierung:
-  - Storage-Tests mit Local Fake.
-
-### B082 - PostgreSQL statt SQLite Option
-
-- Kategorie: Platform
-- Prioritaet: P1
-- Aufwand: L
-- Abhaengigkeiten: B080 oder hoehere Parallelitaet
-- Ausgangslage: SQLite reicht fuer MVP, limitiert aber Concurrency, Backup und Analytics.
-- Dateien: Job Store, DB Migrationen, Config
-- Aufgaben:
-  - DB-Abstraktion oder SQLAlchemy einfuehren.
-  - SQLite weiter fuer Dev, PostgreSQL fuer Prod.
-  - Migration fuer bestehende Jobs definieren.
-- Akzeptanzkriterien:
-  - Produktivbetrieb kann Postgres nutzen.
-  - Tests laufen weiter mit SQLite.
-- Validierung:
-  - DB-Integrationstests.
-
-### B083 - Admin Audit Log
-
-- Kategorie: Security/Compliance
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B006, B082 optional
-- Ausgangslage: Admin-Aenderungen sind nicht voll revisionssicher nachvollziehbar.
-- Dateien: Job Store/Admin Store, `src/api/routes/settings.py`, `src/api/routes/feedback.py`
-- Aufgaben:
-  - Audit Log fuer Settings, Masterdata, Schema, Thresholds, Retention, Rollen.
-  - Speichere User, Zeit, alte/neue Werte oder Hash, Grund.
-  - Admin UI oder API zum Anzeigen.
-- Akzeptanzkriterien:
-  - Jede produktrelevante Aenderung ist nachvollziehbar.
-  - Audit Log ist manipulationsarm und exportierbar.
-- Validierung:
-  - Settings- und Audit-Tests.
+**Suggested fix:**
+Schwellen-Governance: produktive Config beim Start gegen ein "Contract Minimum" validieren (Fail-fast oder lautes Warn-Banner, z. B. wenn counter_check aus UND verify_threshold < 0.95); aktive Abweichungen in `/settings/system` und im Dashboard anzeigen; Änderungen nur per dokumentiertem Review.
 
 ---
 
-## Phase 7: UX, Review-Produktivitaet, Feedback und Produktreife
+### BUG-006: Generischer Bypass der Methoden-Verifikation: `transform_confidence >= 0.95` reicht für den GREEN-Methodencheck
 
-### B084 - Source-Provenance Detail Panel
+**Priority:** Critical
+**Effort:** M
+**Area:** green_gate / transform pipeline
 
-- Kategorie: UX/QA
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B031, B044, B072
-- Ausgangslage: PDF-Highlighting existiert, aber Detailerklaerungen koennen tiefer sein.
-- Dateien: `frontend/src/components/review-grid.tsx`, `frontend/src/components/pdf-source-viewer.tsx`, API Result Schema
-- Aufgaben:
-  - Panel zeigt Originalwert, Zielwert, Transformationsmethode, Source-Anker, Scores, Green-Blocker, Countercheck.
-  - Direkter Sprung zur Quelle.
-  - Unsichere Felder visuell priorisieren.
-- Akzeptanzkriterien:
-  - Reviewer versteht pro Zelle, warum sie Gruen/Gelb/Rot ist.
-  - Weniger Rueckfragen an Entwickler.
-- Validierung:
-  - Frontend-Komponententest und Playwright E2E.
+**Problem:**
+[green_gate.py:234-239](src/scoring/green_gate.py#L234-L239) — `_text_path_method_verified` akzeptiert **jede** Transformationsmethode bei `transform_confidence >= 0.95`. Die Transform-Pipeline vergibt aber pauschal 0.95 für `passthrough` und `text_cleanup` bei allen String-Feldern ([pipeline.py:677-695](src/transform/pipeline.py#L677-L695)). Damit ist die Whitelist `_TEXT_PATH_METHODS` wirkungslos: jedes String-Feld gilt als "methodisch verifiziert". Zusätzlich erlaubt der Text-Pfad GREEN bei `value_match_result == UNCERTAIN` ([green_gate.py:217-220](src/scoring/green_gate.py#L217-L220)).
 
-### B085 - Uncertainty Clustering
+**Impact:**
+⚠️ ZERO-FALSE-POSITIVE RISK. Auf dem Text-Pfad genügt: Mapping-Konfidenz ≥ 0.90 (LLM-Selbsteinschätzung bzw. Value-Evidence-Boost, BUG-007) + Regel-Score + vorhandene Extraktion. Da die Check-2-"Extraktion" auf dem deterministischen Pfad per Konstruktion derselbe Text-Layer-Inhalt ist, prüft niemand mehr, ob die **semantische Spaltenzuordnung** stimmt. Ein selbstbewusst falsches Spalten-Mapping (Rohmaß↔Fertigmaß, Bemerkung↔Beschreibung) erzeugt systematisch falsche GRÜNs über die ganze Spalte.
 
-- Kategorie: UX/QA
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B026, B084
-- Ausgangslage: Review ist zell-/zeilenweise, Ursachen werden nicht gruppiert genug.
-- Dateien: Backend Result Summary, Frontend Review UI
-- Aufgaben:
-  - Unsicherheiten nach Ursache gruppieren: missing source, parser conflict, low mapping, masterdata ambiguous.
-  - UI bietet Filter und Bulk-Aktionen pro Gruppe.
-  - Summary zeigt Top-Blocker fuer No-Touch-Rate.
-- Akzeptanzkriterien:
-  - Reviewer kann viele gleiche Probleme schneller bearbeiten.
-  - Ursachenstatistik fliesst in Backlog/Drift.
-- Validierung:
-  - Frontend Tests und API Summary Tests.
-
-### B086 - Review SLA/Kanban
-
-- Kategorie: UX/Product
-- Prioritaet: P2
-- Aufwand: M
-- Abhaengigkeiten: B079, B083
-- Ausgangslage: Jobliste ist eher technisch als Prozess-Workflow.
-- Dateien: Job Store, `frontend/src/`, API Jobs
-- Aufgaben:
-  - Statusmodell: uploaded, processing, needs_review, reviewed, exported, archived, failed.
-  - Verantwortlicher und Zeitstempel optional.
-  - Filter fuer offene Reviews.
-- Akzeptanzkriterien:
-  - Prozessstatus ist fuer Anwender klar.
-  - Exportierte Jobs koennen archiviert werden.
-- Validierung:
-  - API-/Frontend-Tests.
-
-### B087 - Human Feedback Labels
-
-- Kategorie: QA/Learning
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: B084, B083
-- Ausgangslage: Feedback speichert Korrekturen, aber Ursache und Lernsignal sind begrenzt.
-- Dateien: `src/api/routes/feedback.py`, `src/export/feedback_store.py`, Frontend Review UI
-- Aufgaben:
-  - Feedback-Typen einfuehren: parser_error, mapping_error, transform_error, source_document_error, accepted_suggestion.
-  - Reviewer kann Ursache optional waehlen.
-  - Feedback wird fuer Gold-Kandidaten und Retrieval vorbereitet.
-- Akzeptanzkriterien:
-  - Korrekturen werden lern- und auswertbar.
-  - Sensitive Daten bleiben nach Retention-Policy behandelt.
-- Validierung:
-  - `python -m pytest tests/test_learning_loop.py -q`
-
-### B088 - Active Learning Queue
-
-- Kategorie: ML/Product
-- Prioritaet: P2
-- Aufwand: M
-- Abhaengigkeiten: B087, B018
-- Ausgangslage: Korrekturen werden nicht systematisch in Gold Set oder Regeln ueberfuehrt.
-- Dateien: Admin UI, Feedback Store, Gold-Management-Skript
-- Aufgaben:
-  - Hauefige Korrekturmuster sammeln.
-  - Admin kann Kandidaten als Gold-Beispiel, Mapping-Regel oder Stammdatenalias freigeben.
-  - Keine automatische Regel ohne Freigabe.
-- Akzeptanzkriterien:
-  - Das System verbessert sich kontrolliert ueber menschlich bestaetigte Beispiele.
-  - Audit zeigt Lernquelle.
-- Validierung:
-  - Learning-Loop- und Admin-Tests.
-
-### B089 - Documentation Refresh
-
-- Kategorie: DevEx/Architecture
-- Prioritaet: P1
-- Aufwand: M
-- Abhaengigkeiten: Abschluss jeder Phase
-- Ausgangslage: Einige Plandokumente sind veraltet oder widersprechen aktuellem Code.
-- Dateien: `README.md`, `docs/`, neue `docs/adr/`
-- Aufgaben:
-  - README auf aktuellen Pipeline-Flow, Formate, Grenzen, Setup und Betrieb aktualisieren.
-  - Alte Plaene als historisch markieren oder konsolidieren.
-- Akzeptanzkriterien:
-  - Neue Entwickler und Agenten koennen Architektur ohne Codearchaeologie verstehen.
-  - Produktgrenzen sind ehrlich dokumentiert.
-- Validierung:
-  - Doku-Review gegen implementierten Code.
+**Suggested fix:**
+Den 0.95-Generic-Bypass entfernen (Whitelist exklusiv); `passthrough` nie als verifizierte Methode werten; GREEN bei UNCERTAIN-Match nur für Felder mit Master-Data-/Format-Anker. Flankierend ARCH-005.
 
 ---
 
-## Phase 8: Explizite Ergaenzungen aus der Ausgangstabelle
+### BUG-007: Value-Evidence-Boost hebt die Mapping-Konfidenz über die GREEN-Schwelle (0.92 > 0.90)
 
-Diese Tickets waren in Teilen durch andere Tickets beruehrt, werden hier aber bewusst eigenstaendig gefuehrt, damit wirklich jeder Verbesserungspunkt aus der Tabelle agententauglich abarbeitbar ist.
+**Priority:** High
+**Effort:** M
+**Area:** mapping_validator
 
-### B090 - Data Retention Jobs
+**Problem:**
+[mapping_validator.py:25-31, 395-417](src/mapping/mapping_validator.py#L395-L417) — wenn ≥ 40 % der Spaltenwerte zum Zieltyp passen, wird die Mapping-Konfidenz auf 0.92 angehoben — knapp über die GREEN-Anforderung `candidate_confidence >= 0.90` des Text-Pfads. Für Material zählt jeder Katalog-/Formatmatch als Evidenz; eine **Norm-Spalte** ("DIN 4957", "EN 10088-2") mit eingebetteten Werkstoffnummern erreicht die 40 % leicht, ohne die Material-Spalte zu sein.
 
-- Kategorie: Compliance
-- Prioritaet: P0
-- Aufwand: M
-- Abarbeitungsposition: Nach B017, vor produktivem Betrieb.
-- Abhaengigkeiten: Retention-Policy des Betreibers, B083 optional
-- Ausgangslage: Uploads, Exports, Job-Datenbank und Audit-Artefakte koennen unbegrenzt lokal wachsen.
-- Dateien: `src/api/job_store.py`, `src/api/main.py`, Storage-Abstraktion aus B081, `config/app_config.yaml`
-- Aufgaben:
-  - Retention-Regeln definieren: Uploads, Exports, Reports, Job-Metadaten, Feedback, Audit Logs.
-  - Scheduler oder Admin-Command fuer periodisches Loeschen/Archivieren implementieren.
-  - Jobs mit Ablaufdatum versehen.
-  - Loeschaktionen auditieren, ohne geloeschte Inhalte wieder zu speichern.
-  - README/Runbook um Datenschutz- und Aufbewahrungslogik ergaenzen.
-- Akzeptanzkriterien:
-  - Abgelaufene Uploads/Exports werden automatisch oder per Admin-Command entfernt.
-  - Audit zeigt, dass geloescht wurde, aber enthaelt keine geloeschten Rohdaten.
-  - Retention ist konfigurierbar und default-sicher.
-- Validierung:
-  - Tests fuer Ablaufdatum, Dry-Run, echte Loeschung und Audit-Eintrag.
+**Impact:**
+⚠️ ZERO-FALSE-POSITIVE RISK (in Kombination mit BUG-006): der Boost hebt genau die Schwelle aus, die ein unsicheres LLM-Mapping von GREEN fernhalten soll.
 
-### B091 - PII/Secret Redaction Logs
-
-- Kategorie: Security/Observability
-- Prioritaet: P1
-- Aufwand: S
-- Abarbeitungsposition: Nach B076, vor produktivem zentralem Logging.
-- Abhaengigkeiten: B052, B053
-- Ausgangslage: Logs koennen Dateinamen, Kundendaten, Prompt-Auschnitte oder technische Secrets enthalten.
-- Dateien: `src/api/pipeline_runner.py`, `src/llm/`, Logging-Konfiguration
-- Aufgaben:
-  - Zentrale Redaction-Funktion fuer Logs einfuehren.
-  - Bekannte Secret-Muster, API-Keys, Authorization Header, Session Cookies und personenbezogene Muster maskieren.
-  - Strukturierte Logs statt freier Dumps bevorzugen.
-  - Tests fuer Redaction-Muster schreiben.
-- Akzeptanzkriterien:
-  - Keine Secrets oder vollstaendigen Prompt-/Dokumentinhalte in Standardlogs.
-  - Debug-Logging ist bewusst aktivierbar und klar als sensibel markiert.
-- Validierung:
-  - Unit-Tests fuer Log-Redaction und manuelle Stichprobe der Pipeline-Logs.
-
-### B092 - Entra ID / OIDC
-
-- Kategorie: Security
-- Prioritaet: P1
-- Aufwand: M
-- Abarbeitungsposition: Nach B002-B006, vor breiter Nutzerfreigabe.
-- Abhaengigkeiten: Microsoft Entra Tenant, App Registration, Rollenmodell
-- Ausgangslage: Lokale Login-Mechanik reicht fuer MVP, ist aber nicht ideal fuer Unternehmensbetrieb.
-- Dateien: `src/core/auth.py`, `src/api/routes/auth.py`, Frontend Auth Flow, `.env.example`
-- Aufgaben:
-  - OIDC-Konfiguration fuer Entra ID einfuehren: issuer, client ID, redirect URI, scopes.
-  - Rollen aus Claims oder Gruppen auf `admin`/`reviewer` mappen.
-  - Lokale Dev-Auth weiter explizit fuer Entwicklung erlauben.
-  - Logout, Session-Lifetime und Token-Validierung sauber implementieren.
-  - Dokumentation fuer Entra-Setup schreiben.
-- Akzeptanzkriterien:
-  - Unternehmensnutzer koennen sich ueber Entra anmelden.
-  - Lokale Default-Credentials sind in Produktion nicht noetig.
-  - Rollen werden zentral verwaltet.
-- Validierung:
-  - Mock-OIDC-Tests und manueller Entra-Smoke-Test in Zielumgebung.
-
-### B093 - Release/Versioning
-
-- Kategorie: DevEx/Deploy
-- Prioritaet: P1
-- Aufwand: S
-- Abarbeitungsposition: Nach B013, vor erstem produktivem Release.
-- Abhaengigkeiten: CI und Git-Release-Prozess
-- Ausgangslage: App-Version und Build-Information sind nicht durchgaengig sichtbar.
-- Dateien: `src/api/routes/settings.py`, `src/api/main.py`, Frontend Footer/System UI, CI
-- Aufgaben:
-  - Version, Git SHA, Build-Zeit und Schema-Version in Backend-Systemendpunkt ausgeben.
-  - Frontend zeigt Build-Version im Admin/Systembereich.
-  - CI setzt Build-Metadaten automatisch.
-  - Release Notes oder Changelog-Prozess definieren.
-- Akzeptanzkriterien:
-  - Jeder Bugreport kann einer konkreten Version zugeordnet werden.
-  - Export/Audit kann optional App-Version enthalten.
-- Validierung:
-  - System-Endpunkt-Test und Frontend-Build.
-
-### B094 - Backup/Restore Runbook
-
-- Kategorie: SRE
-- Prioritaet: P1
-- Aufwand: S
-- Abarbeitungsposition: Nach B081/B082 oder frueher fuer lokale Volumes.
-- Abhaengigkeiten: Zielstorage und DB-Entscheidung
-- Ausgangslage: Backup und Restore fuer Jobs, Config, Masterdata, Feedback und Exports sind nicht als Runbook beschrieben.
-- Dateien: `docs/`, `README.md`, Docker/Deploy-Konfiguration
-- Aufgaben:
-  - Zu sichernde Artefakte auflisten: Config, Target Schema, Master Data, learned mappings, Job DB, uploads, exports, reports.
-  - Backup-Frequenz und Restore-Schritte definieren.
-  - Restore-Test als manuelles Runbook beschreiben.
-  - Verantwortlichkeiten und Aufbewahrungsdauer mit Retention abstimmen.
-- Akzeptanzkriterien:
-  - Ein Betreiber kann aus Backup eine funktionsfaehige Instanz wiederherstellen.
-  - Restore wurde mindestens einmal in einer Testumgebung geprobt.
-- Validierung:
-  - Runbook-Review und optional Restore-Smoke-Test.
-
-### B095 - Deployment IaC
-
-- Kategorie: CI/CD
-- Prioritaet: P1
-- Aufwand: L
-- Abarbeitungsposition: Nach B015-B017 und vor reproduzierbaren Produktivdeployments.
-- Abhaengigkeiten: Zielplattform: VPS/Traefik, Azure Container Apps, Kubernetes oder VM
-- Ausgangslage: Es gibt Docker/Compose, aber keine voll reproduzierbare Infrastrukturdefinition.
-- Dateien: `docker-compose.yml`, neue `deploy/`, optional Terraform/Bicep
-- Aufgaben:
-  - Zielplattform festlegen.
-  - IaC fuer Netzwerk, Storage, Secrets, App, Worker, Monitoring und TLS erstellen.
-  - Environments fuer dev/stage/prod definieren.
-  - Rollback- und Migration-Strategie dokumentieren.
-- Akzeptanzkriterien:
-  - Eine neue Instanz kann reproduzierbar deployed werden.
-  - Secrets kommen aus Secret Store, nicht aus Dateien im Repo.
-- Validierung:
-  - Deployment in Stage-Umgebung oder Dry-Run der IaC.
-
-### B096 - API Pagination for Result
-
-- Kategorie: Perf/API
-- Prioritaet: P1
-- Aufwand: L
-- Abarbeitungsposition: Nach B028, vor sehr grossen BOMs.
-- Abhaengigkeiten: API Contract Tests und Frontend Grid
-- Ausgangslage: Ergebnisantworten koennen bei grossen BOMs sehr gross werden.
-- Dateien: `src/api/routes/jobs.py`, API Schemas, `frontend/src/lib/use-job-pipeline.ts`, `frontend/src/components/review-grid.tsx`
-- Aufgaben:
-  - Result-Summary von Row/Cell-Details trennen.
-  - Paginierte oder virtualisierte API fuer Rows/Cells einfuehren.
-  - Frontend Grid laedt sichtbare Bereiche effizient nach.
-  - Export bleibt serverseitig vollstaendig.
-- Akzeptanzkriterien:
-  - 10k-Zeilen-BOM blockiert API/Frontend nicht.
-  - Review-Funktionen bleiben korrekt bei paginierten Daten.
-- Validierung:
-  - API-Contract-Test und Performance-Budget-Test.
-
-### B097 - Audit Blob Normalization
-
-- Kategorie: Perf/DB
-- Prioritaet: P2
-- Aufwand: L
-- Abarbeitungsposition: Nach B082, wenn Analytics/Reporting wichtiger wird.
-- Abhaengigkeiten: PostgreSQL oder analytisch nutzbarer Store
-- Ausgangslage: Audit-Daten liegen blob-/dokumentorientiert vor und sind fuer Analytics nur begrenzt abfragbar.
-- Dateien: Job Store, Audit Trail, DB Migrationen
-- Aufgaben:
-  - Normalisierte Tabellen fuer Jobs, Rows, Cells, Scores, Issues, Source Anchors und LLM Calls entwerfen.
-  - Bestehenden Blob als Originalartefakt behalten.
-  - Analytics-Abfragen fuer Green Rate, Korrekturen, Fehlerklassen und Citation Coverage bauen.
-- Akzeptanzkriterien:
-  - Operative Analytics braucht keine komplette Blob-Deserialisierung.
-  - Originalaudit bleibt reproduzierbar erhalten.
-- Validierung:
-  - Migrationstest und Beispiel-Analytics-Queries.
-
-### B098 - Streaming Progress Events
-
-- Kategorie: UX/Perf
-- Prioritaet: P2
-- Aufwand: M
-- Abarbeitungsposition: Nach B076/B077 und bei Bedarf an besserer Live-UX.
-- Abhaengigkeiten: API/Frontend-Entscheidung SSE oder WebSocket
-- Ausgangslage: Frontend pollt Jobstatus periodisch.
-- Dateien: `src/api/routes/jobs.py`, `src/api/pipeline_runner.py`, Frontend Job Hooks
-- Aufgaben:
-  - SSE- oder WebSocket-Endpunkt fuer Job Progress anbieten.
-  - Pipeline sendet Stage-Events: queued, parsing, mapping, scoring, exporting, done, failed.
-  - Frontend nutzt Events und faellt bei Verbindungsfehlern auf Polling zurueck.
-- Akzeptanzkriterien:
-  - Nutzer sehen Fortschritt ohne aggressives Polling.
-  - Eventstream ist reconnect-faehig.
-- Validierung:
-  - API-Test fuer Eventstream und Frontend-Smoke-Test.
-
-### B099 - ADRs fuer Kernentscheidungen
-
-- Kategorie: Architecture/DevEx
-- Prioritaet: P1
-- Aufwand: S/M
-- Abarbeitungsposition: Parallel zu den Architektur-Tickets, spaetestens am Ende jeder Phase.
-- Abhaengigkeiten: Architekturentscheidungen aus B031, B034, B046, B080-B082
-- Ausgangslage: Es gibt Plaene, aber keine konsistente ADR-Struktur fuer irreversible oder teure Entscheidungen.
-- Dateien: `docs/adr/`
-- Aufgaben:
-  - ADR-Template anlegen: Kontext, Entscheidung, Alternativen, Konsequenzen, Status.
-  - ADRs schreiben fuer Green Gate, Canonical Document Model, Scan Policy, Auth/OIDC, Storage, Worker, Database, Retention.
-  - README auf ADR-Index verlinken.
-- Akzeptanzkriterien:
-  - Neue Agenten koennen die Gruende hinter Architekturentscheidungen nachvollziehen.
-  - Veraltete Entscheidungen werden als superseded markiert.
-- Validierung:
-  - Doku-Review; jede abgeschlossene Phase hat passende ADRs.
-
-### B100 - Programmatic Ticket Tracking Export
-
-- Kategorie: DevEx
-- Prioritaet: P2
-- Aufwand: S/M
-- Abarbeitungsposition: Nach finaler Backlog-Freigabe.
-- Abhaengigkeiten: Gewuenschtes Zielsystem: GitHub Issues, Azure DevOps oder Markdown-only
-- Ausgangslage: `backlog.md` ist agententauglich, aber nicht automatisch als Issue-Board importierbar.
-- Dateien: `scripts/`, `backlog.md`
-- Aufgaben:
-  - Skript schreiben, das Tickets aus `backlog.md` als JSON/CSV exportiert.
-  - Felder extrahieren: ID, Titel, Kategorie, Prioritaet, Aufwand, Abhaengigkeiten, Phase.
-  - Optional GitHub-Issue-Import vorbereiten.
-- Akzeptanzkriterien:
-  - Backlog kann in ein Tracking-System uebernommen werden.
-  - Markdown bleibt Single Source of Truth oder Exportprozess ist dokumentiert.
-- Validierung:
-  - `python scripts/export_backlog_tickets.py --input backlog.md --out data/exports/backlog_tickets.json`
+**Suggested fix:**
+Boost auf max. 0.89 begrenzen (Evidenz darf YELLOW verbessern, nie GREEN freischalten), oder nur zulassen, wenn LLM-Konfidenz ≥ 0.75 UND ein Header-Keyword-Match dazukommt.
 
 ---
 
-## Abschlusskriterien fuer das Gesamtprogramm
+### BUG-008: Fuzzy-Master-Data-Matches sind GREEN-fähig (WRatio-Cutoff 85 bei Nitrier-/Beschichtungs-Aliassen)
 
-Das Programm gilt als umgesetzt, wenn alle folgenden Punkte erfuellt sind:
+**Priority:** High
+**Effort:** M
+**Area:** stammdaten_matching / green_gate
 
-1. Alle P0-Tickets sind abgeschlossen und validiert.
-2. Alle P1-Tickets sind abgeschlossen oder bewusst mit dokumentierter Produktentscheidung verschoben.
-3. P2-Tickets sind evaluiert und nur umgesetzt, wenn Nutzen/Kosten positiv sind.
-4. Gold-Benchmark laeuft reproduzierbar und zeigt keine False Greens.
-5. Export-Guard meldet null unerklaerte Datenverluste.
-6. Scan-Dokumente bekommen nur dann Gruen, wenn eine unabhaengige OCR/Layout-/Countercheck-Spur die Vollstaendigkeit und Werte bestaetigt.
-7. Jede gruen bewertete Zelle besitzt Source-Provenance und Policy-konforme Evidenz.
-8. CI, Security-Scans, Dependency-Locks und Container-Hardening sind aktiv.
-9. Betrieb sieht Traces, Metriken, Kosten, Drift und Fehlerklassen.
-10. Review UI erklaert Unsicherheit und speichert Feedback als lernbares Signal.
+**Problem:**
+`fuzzy_alias` und `fuzzy_material` stehen in `_TEXT_PATH_METHODS` ([green_gate.py:22-23](src/scoring/green_gate.py#L22-L23)). Für Nitrier-Arten und Beschichtungen liegt der Fuzzy-Cutoff bei **85** (WRatio mit Partial-Matching, [master_data_matcher.py:24](src/transform/master_data_matcher.py#L24)) — bei kurzen, ähnlichen Fachbegriffen kann der falsche Kanon gewählt und GRÜN werden, wenn der Comparator denselben Fehler kanonisiert. Material hat 95 + Familien-Konflikt-Guard (gut); die Alias-Kataloge nicht.
 
-## Erwartete technische Zielbewertung nach Umsetzung
+**Impact:**
+⚠️ ZERO-FALSE-POSITIVE RISK (begrenzt auf Nitriding type/Coating — beide Kategorie A; eine falsche Nitrier-Art ist ein fachlich relevanter Wärmebehandlungsfehler).
 
-Wenn alle P0 und P1 Tickets umgesetzt und P2 gezielt nach Nutzen realisiert sind, sollte das Projekt realistisch auf folgende Reife kommen:
+**Suggested fix:**
+Fuzzy-Methoden aus `_TEXT_PATH_METHODS` entfernen (Fuzzy = YELLOW-Vorschlag, nie Auto-GREEN), oder Cutoff für Alias-Kataloge ≥ 95 + token_sort_ratio statt WRatio + Mindestlängen.
 
-- BOM-spezifische Pipeline/Output-Sicherheit: 90-95 / 100
-- Zero-False-Green-Strategie: 92-97 / 100
-- Formatunabhaengigkeit: 80-88 / 100
-- Produktionsreife/SRE/Observability: 85-92 / 100
-- Security/Compliance-Haertung: 85-92 / 100
-- UX fuer Human Review: 82-90 / 100
-- Evaluation/CI/CD/Teststrategie: 90-95 / 100
+---
 
-Gesamtziel nach konsequenter Umsetzung: ca. 88-93 / 100 der heute sinnvoll und praktikabel erreichbaren technischen Bestleistung fuer diesen fachlichen Scope.
+### BUG-009: `_parse_decimal` nutzt `re.search` — Partial-Token-Matches gelten als "exact numeric match"
+
+**Priority:** High
+**Effort:** S
+**Area:** value_comparator
+
+**Problem:**
+[value_comparator.py:896-904](src/scoring/value_comparator.py#L896-L904) — `_parse_decimal("500x300x200")` liefert 500.0 (erste Zahl); `_compare_decimal("500", "500x300x200")` ist damit MATCH mit `strict_exact_match=True` und Detail "exact numeric match". Für Dimensions X/D bestätigt also **immer die erste Zahl** des Quellstrings; bei Nitriding depth wird "0.2" vs. "0.2-0.3" als exakt gewertet (Range-Information verloren). Y/L und Z sind über den positionsbasierten Fix A abgesichert; X/D umgeht ihn über den direkten Pfad.
+
+**Impact:**
+⚠️ ZERO-FALSE-POSITIVE RISK (moderat: meist ist die erste Komponente tatsächlich X/D, aber der "exact"-Anspruch ist falsch etikettiert und Range-Verluste werden als exakt deklariert).
+
+**Suggested fix:**
+`fullmatch` statt `search` für den "exact"-Pfad; kombinierte Strings ausschließlich über den positionsbasierten Komponenten-Vergleich (Fix A) matchen lassen.
+
+---
+
+### BUG-010: Koordinaten-Crosscheck normalisiert Punkte weg — "4.5" bestätigt "45"
+
+**Priority:** High
+**Effort:** S
+**Area:** pymupdf_lock (Vision-Pfad)
+
+**Problem:**
+[pdf_parser.py:2359-2364](src/ingestion/pdf_parser.py#L2359-L2364) — `_normalize_token` entfernt alle Nicht-Alphanumerik: "4.5"→"45", "1.2343"→"12343", "1-2"→"12". Beim Token-Match des Koordinaten-Checks bestätigt ein PDF-Wort "45" damit einen Vision-Wert "4.5" (COORDOK) statt einen Mismatch zu erzeugen. `_token_variants` ([Zeile 2401-2403](src/ingestion/pdf_parser.py#L2401)) ist zudem ein Stub, der die versprochenen Dezimal-Varianten nicht baut.
+
+**Impact:**
+⚠️ ZERO-FALSE-POSITIVE RISK auf dem Scan-Pfad (aktuell ohne GREEN-Folge, da Counter-Check aus — aber die COORDOK-Flags fließen in Audits und jede künftige Lockerung).
+
+**Suggested fix:**
+Numerische Tokens separat normalisieren (Dezimaltrennzeichen vereinheitlichen statt löschen); Mismatch-Erkennung auf Ziffernfolge **mit** Strukturzeichen.
+
+---
+
+### BUG-011: Vision-Pfad — Zeilen-Identität bleibt der Positionswert; doppelte Positionsnummern kollabieren im Master-Set
+
+**Priority:** High
+**Effort:** L
+**Area:** reconciliation / Vision-Pfad
+
+**Problem:**
+RB-1 (Band-Identität) gilt nur für den Text-Pfad. Auf dem Vision-Pfad ist das Master-Set `set(positions)` ([position_reconciler.py:77-95](src/reconciliation/position_reconciler.py#L77-L95)): zwei **verschiedene Teile mit derselben Positionsnummer** (T-007) sind ein einziger Eintrag. Lässt das Vision-Modell eine der Zeilen aus, gilt die Position trotzdem als abgedeckt — der Verlust ist für Reconciler, B3-Coverage-Guard und Export-Assertion unsichtbar. Das trifft auch **digitale** PDFs, die auf den Vision-Fallback laufen (GF-Layout).
+
+**Impact:**
+Stiller Zeilenverlust auf dem Vision-Pfad (Zero-Data-Loss-Lücke). Für die Demo: eine fehlende Bestellposition ist genauso vertrauenszerstörend wie ein falsches GRÜN.
+
+**Suggested fix:**
+Master-Set auf dem Vision-Pfad als Multiset (Position × Vorkommens-Zähler aus den Raw-Rows) oder Ordinal-Schlüssel `seite×10000+reihenfolge` aus den Raw-Vision-Zeilen; Differenz Rohzeilen vs. emittierte Zeilen immer als RED-Pseudozeile ausweisen.
+
+---
+
+### BUG-012: Counter-Check-Verifier hat defekte Regexes (doppelt escaptes `\\s`/`\\d` in Raw-Strings)
+
+**Priority:** Medium
+**Effort:** S
+**Area:** vision_verifier
+
+**Problem:**
+[vision_verifier.py:313-346, 377-385](src/scoring/vision_verifier.py#L313-L385) — `_safe_json_loads` und `_normalize_for_compare` verwenden `r"...\\s..."` → die Patterns matchen literal `\s`/`\d` statt Whitespace/Ziffern. Folgen: Markdown-Fences werden nicht zuverlässig gestrippt, Trailing-Comma-Reparatur greift nicht, Whitespace-Kollaps und Dezimal-Komma-Harmonisierung im Vergleich sind wirkungslos.
+
+**Impact:**
+Nur falsch-negativ (Counter-Check scheitert öfter als nötig → weniger GREEN, verlorene Vision-Kosten). Aber: der Schutzmechanismus ist beim Reaktivieren (BUG-005) teilweise funktionsunfähig — und das fällt nicht auf, weil er in Prod deaktiviert ist.
+
+**Suggested fix:**
+Backslashes korrigieren; Unit-Tests für beide Helfer; mit der korrekten `pdf_parser._safe_json_loads`-Implementierung deduplizieren.
+
+---
+
+### BUG-013: `empty_non_required_as_neutral` macht Mapping-Fehlschläge mit vorhandenem Quellwert zu NEUTRAL (Score 1.0)
+
+**Priority:** High
+**Effort:** S
+**Area:** ensemble_scorer / config
+
+**Problem:**
+[ensemble_scorer.py:751-786](src/scoring/ensemble_scorer.py#L751-L786) — bei `empty_non_required_as_neutral: true` (Prod-Config!) wird eine Zelle, deren **Quellwert existiert, aber nicht transformiert werden konnte** (`MAPPING_FAILURE_WITH_SOURCE_VALUE`), als NEUTRAL mit `final_score 1.0` ausgewiesen und aus `total_scored` herausgerechnet. Dashboard/Statistik und Reviewer sehen kein Review-Signal.
+
+**Impact:**
+Verlorene Quellinformation wird als "intentional leer" maskiert → Datenverlust am Zellrand, geschönte Automationsquote. Kein falsches GRÜN, aber ein falsches "nichts zu tun".
+
+**Suggested fix:**
+NEUTRAL nur bei **leerem Rohwert**. Mapping-Fehlschlag mit Quellwert immer mindestens YELLOW (`empty_non_required_as_yellow` existiert bereits — Default-Empfehlung umdrehen).
+
+---
+
+### BUG-014: Demo-Overrides "frontend_ui_pass_through" und "Detail-Number-Release" stufen RED pauschal auf YELLOW herab
+
+**Priority:** Medium
+**Effort:** M
+**Area:** ensemble_scorer
+
+**Problem:**
+[ensemble_scorer.py:49-61, 351-364, 498-514, 1037-1088](src/scoring/ensemble_scorer.py#L1037-L1088) — zwei hartkodierte Sonderpfade mit "Fix:"-Prosa: (1) Description/Dimensions-Zellen mit Transform-Konfidenz ≥ 0.90 werden von RED auf YELLOW gehoben, (2) Detail-Number-Wert-Mismatches werden "für die UI freigegeben", inklusive Entfernen des `CHECK3_VALUE_MISMATCH`-Vetos. Beides sind Symptom-Patches (mutmaßlich gegen "alles rot" in der Demo), keine begründeten Regeln.
+
+**Impact:**
+Echte Wert-Widersprüche (Lock-2/3-Mismatch!) erscheinen als "nur prüfen" statt "falsch" — geschwächte RED-Semantik bei genau den Feldern (Maße, Positionsnummer), in denen Mismatches am gefährlichsten sind.
+
+**Suggested fix:**
+Beide Overrides entfernen oder durch eine dokumentierte, konfigurierbare Policy ersetzen; UI-Probleme im Frontend lösen, nicht im Scorer.
+
+---
+
+### BUG-015: `normalize_position` normalisiert "1.0" ≠ "1" nicht (Docstring verspricht es)
+
+**Priority:** Medium
+**Effort:** S
+**Area:** core/positions / reconciliation
+
+**Problem:**
+[positions.py:19-30](src/core/positions.py#L19-L30) — der Docstring nennt `"1.0"` als Beispiel konsistenter Normalisierung, der Code macht nur Upper-Case/Whitespace/Dash-Tightening. Liest der Vision-Pass "1.0" und die Spaltenextraktion "1" (oder Excel liefert "1.0" aus openpyxl-Floats), matchen die Sets nicht → Phantom-MISSING-Zeilen (RED) oder fehlschlagende Export-Guards.
+
+**Impact:**
+Falsche RED/MISSING-Zeilen und potenzielle `ZeroDataLossError`-Abbrüche bei vollständigen Exporten (False-Alarm-Richtung, blockiert aber den Download).
+
+**Suggested fix:**
+Numerische Positionen kanonisieren ("1.0"→"1", führende Nullen definiert) — an genau einer Stelle, mit Tabellen-Tests.
+
+---
+
+### BUG-016: Dual-Extraction — Zeilen-Pairing per Index/Nächster-Nachbar kann Mismatches systematisch verdecken
+
+**Priority:** Medium
+**Effort:** M
+**Area:** vision_lock
+
+**Problem:**
+[pdf_parser.py:1277-1411](src/ingestion/pdf_parser.py#L1277-L1411) — Zeilen aus Lauf A und B werden per Anker, sonst per Index, sonst per "nächste freie Zeile" gepaart. Verrutscht Lauf B um eine Zeile, vergleicht der Rest paarweise falsche Zeilen — teils Pseudo-Mismatches (konservativ), bei strukturell ähnlichen Zeilen aber auch maskierte echte Differenzen. Identische Halluzinationen beider Läufe sind prinzipbedingt unsichtbar; Extraktion B wird verworfen.
+
+**Impact:**
+Geschwächtes Lock-1-Qualitätssignal auf dem Scan-Pfad (DUAL-Flags speisen Vetos und Audits).
+
+**Suggested fix:**
+Pairing über Anker + Reihenfolge-Monotonie (Sequence Alignment auf Anker-Sequenzen); ungepaarte Zeilen pauschal als Zeilen-DUAL-Mismatch; Zeilenzahl-Differenz A↔B in die Completeness-Reason.
+
+---
+
+### BUG-017: Phase A erkennt die Spaltenstruktur nur auf Seite 1
+
+**Priority:** Medium
+**Effort:** M
+**Area:** vision_lock
+
+**Problem:**
+[pdf_parser.py:84-102](src/ingestion/pdf_parser.py#L84-L102) — `_detect_columns_via_vision(images[0])`. Mehrseitige BOMs mit abweichender Struktur ab Seite 2 (anderes Formular, zusätzliche Spalten) werden mit dem Seite-1-Schema extrahiert; Werte landen in falschen Keys. (Der Text-Pfad löst das bereits per-Section — nur Vision betroffen.)
+
+**Impact:**
+Spaltenversatz auf Folgeseiten → falsche Zuordnungen, die der Koordinaten-Check nicht systematisch fängt.
+
+**Suggested fix:**
+Pro Seite ein leichter Struktur-Check (Header erkannt? Spaltenzahl plausibel?); bei Abweichung Phase A für diese Seite wiederholen.
+
+---
+
+### BUG-018: CSV-Upload wird akzeptiert, aber `parse_file` wirft "Unsupported file format"
+
+**Priority:** High
+**Effort:** S
+**Area:** api / ingestion
+
+**Problem:**
+[upload.py:19](src/api/routes/upload.py#L19) erlaubt `.csv`; [file_router.py:14](src/ingestion/file_router.py#L14) mappt `.csv → FileFormat.CSV`; [structure_normalizer.py:34-102](src/ingestion/structure_normalizer.py#L34-L102) behandelt nur EXCEL und PDF → `ValueError`. Jeder CSV-Upload endet als fehlgeschlagener Job mit kryptischer Meldung.
+
+**Impact:**
+Kaputter Produktvertrag (UI bewirbt CSV), schlechte Demo-Erfahrung.
+
+**Suggested fix:**
+CSV-Parser ergänzen (csv → ParsedBOM analog `parse_excel`) **oder** `.csv` aus `ALLOWED_EXTENSIONS` und dem Frontend entfernen.
+
+---
+
+### BUG-019: `.xls` (Legacy-BIFF) wird akzeptiert, openpyxl kann es nicht lesen
+
+**Priority:** Medium
+**Effort:** S
+**Area:** api / ingestion
+
+**Problem:**
+`.xls` wird als EXCEL geroutet ([file_router.py:11-15](src/ingestion/file_router.py#L11-L15)), aber `openpyxl.load_workbook` unterstützt nur OOXML → Laufzeit-Fail.
+
+**Impact:**
+Wie BUG-018: akzeptierter Upload, später kryptischer Fehler.
+
+**Suggested fix:**
+Produktentscheidung: blocken mit klarer Meldung ("bitte als .xlsx speichern") oder Konvertierung einbauen.
+
+---
+
+### BUG-020: Legacy-Parser-Fallback auf Text-Layer-PDFs setzt kein `vision_fallback_reason`
+
+**Priority:** Medium
+**Effort:** S
+**Area:** structure_normalizer / green_gate
+
+**Problem:**
+[structure_normalizer.py:93-100](src/ingestion/structure_normalizer.py#L93-L100) — schlägt der primäre Parse-Pfad unerwartet fehl, läuft der **Legacy-Parser**; `vision_fallback_reason` wird nur gesetzt, wenn `has_text_layer == False`. Auf einem Text-Layer-PDF fehlt das Signal; der Green-Gate-Block `VISION_FALLBACK_TO_LEGACY_PARSER` greift nicht. GREEN ist faktisch durch fehlende `source_locations` blockiert — aber implizit statt by design.
+
+**Impact:**
+Verlässt sich auf einen Nebeneffekt; jede künftige Legacy-Parser-Änderung (z. B. source_locations ergänzen) öffnet unbemerkt einen GREEN-Pfad ohne Locks. Completeness-Reason ist in diesem Zustand irreführend.
+
+**Suggested fix:**
+Explizites Flag `legacy_parser_used` bei jedem Fallback; im Green Gate hart blocken; Completeness-Reason entsprechend.
+
+---
+
+### BUG-021: Post-Validation-Plausibilitäts-Flags erreichen den Scorer nicht (toter Sicherungspfad)
+
+**Priority:** Medium
+**Effort:** S
+**Area:** vision_lock / ensemble_scorer
+
+**Problem:**
+[pdf_parser.py:1605-1630](src/ingestion/pdf_parser.py#L1605-L1630) erzeugt Plausibilitäts-Flags ("possible column bleeding", "dimension digit count inconsistent") mit dem Kommentar "Flagged cells will be capped at RED in the ensemble scorer". Der Scorer konsumiert aber nur `COORDMISS:`/`COORDCOL:`/`DUAL:`-Präfixe ([ensemble_scorer.py:1494-1520](src/scoring/ensemble_scorer.py#L1494-L1520)) — die präfixlosen Flags wirken nirgends.
+
+**Impact:**
+Erkannte OCR-Verdachtsfälle haben keinerlei Scoring-Wirkung; der Code-Kommentar ist falsch.
+
+**Suggested fix:**
+Eigenes Präfix (`PLAUS:`) + Auswertung als Soft-Veto (YELLOW-Cap) — oder die Prüfung ehrlich als "nur Audit" deklarieren.
+
+---
+
+### Sicherheit
+
+---
+
+### SEC-001: Echter Azure-OpenAI-Key liegt in der Git-Historie
+
+**Priority:** Critical
+**Effort:** S
+**Area:** secrets / ops
+
+**Problem:**
+`git log --all -p -- .env` zeigt einen realen `AZURE_OPENAI_KEY` im Initial-Commit (Datei später entfernt; `.gitignore` heute korrekt). [INDUSTRIAL_REFACTOR_PLAN.md:199](INDUSTRIAL_REFACTOR_PLAN.md#L199) markiert die Rotation selbst als offen.
+
+**Impact:**
+Jeder mit Repo-Zugriff (inkl. alter Clones, GitHub-Remote) kann auf die Azure-OpenAI-Ressource zugreifen — Kosten, Datenabfluss, DSGVO-Vorfall.
+
+**Suggested fix:**
+Key in Azure sofort rotieren; Historie mit `git filter-repo` bereinigen + Force-Push; gitleaks als CI-Gate.
+
+---
+
+### SEC-002: Default-Login admin/admin funktioniert immer (auch mit gesetztem Passwort)
+
+**Priority:** Critical
+**Effort:** S
+**Area:** auth
+
+**Problem:**
+[auth.py:101-116](src/core/auth.py#L101-L116) — `default_admin_match` akzeptiert admin/admin **zusätzlich** zu den konfigurierten Credentials, solange `LOGIN_ALLOW_DEFAULT_ADMIN` nicht explizit false ist. Default ist `true`, und [.env.deploy.example](.env.deploy.example) setzt es **auch für Produktion** auf `true` (der compose-Kommentar "cookie login (admin/admin)" bestätigt die Praxis). Passwörter werden zudem im Klartext aus Env verglichen.
+
+**Impact:**
+Öffentlich erreichbares Produktionssystem (stuecklistenagent.prozessia.space) mit bekanntem Standard-Login: voller Zugriff auf Kunden-Stücklisten, Master-Data-Schreibrechte über /settings, Job-Purge.
+
+**Suggested fix:**
+Default auf `false`; Start-Abbruch (oder lautes Banner), wenn Default-Admin in Prod-Konstellation aktiv; deploy-Example korrigieren; Passwort-Hash statt Klartext.
+
+---
+
+### SEC-003: CSRF — Frontend implementiert Double-Submit, Backend validiert nichts
+
+**Priority:** Medium
+**Effort:** M
+**Area:** auth / api
+
+**Problem:**
+[frontend/src/lib/api.ts:17-35](frontend/src/lib/api.ts#L17-L35) sendet `X-CSRF-Token` aus einem `csrf_token`-Cookie und behauptet, das Backend nutze das Double-Submit-Pattern. Das Backend setzt dieses Cookie nie und prüft den Header nirgends ([auth.py](src/core/auth.py), [routes/auth.py](src/api/routes/auth.py)). Schutz ist faktisch nur `SameSite=lax`.
+
+**Impact:**
+Mutierende Endpunkte (Zell-Edits, Master-Data-Schreiben, Job-Purge) sind in Subdomain-/Browser-Lücken-Szenarien CSRF-exponiert; gefährlicher ist die falsche Sicherheitsannahme im Code.
+
+**Suggested fix:**
+Double-Submit serverseitig implementieren (Cookie beim Login, Header-Pflicht bei POST/PUT/PATCH/DELETE) — das Frontend ist vorbereitet.
+
+---
+
+### SEC-004: Kein Rate-Limit, kein Login-Lockout, API-Key-Vergleich nicht konstantzeitig
+
+**Priority:** Medium
+**Effort:** M
+**Area:** auth / api
+
+**Problem:**
+`/auth/login` ist unbegrenzt brute-forcebar; Upload/Verarbeitung pro Request unlimitiert (Azure-Kosten-DoS durch wiederholte 50-MB-Uploads); [auth.py:176-177](src/core/auth.py#L176-L177) vergleicht den API-Key mit `==` statt `secrets.compare_digest`.
+
+**Impact:**
+Bruteforce gegen SEC-002 trivial; ein Angreifer kann beliebige Azure-Kosten erzeugen.
+
+**Suggested fix:**
+Rate-Limit (Token-Bucket per IP+User) für /auth/login und /upload; Lockout nach N Fehlversuchen; compare_digest.
+
+---
+
+### SEC-005: Upload validiert nur die Dateiendung (kein Magic-Byte-Check)
+
+**Priority:** Medium
+**Effort:** S
+**Area:** api / upload
+
+**Problem:**
+[upload.py:40-52](src/api/routes/upload.py#L40-L52) prüft Extension und Größe; eine als `.pdf` benannte beliebige Datei läuft bis in PyMuPDF/openpyxl. (Path-Traversal ist sauber gelöst.)
+
+**Impact:**
+Unnötige Parser-Angriffsfläche (PyMuPDF-CVEs) auf einem internetöffentlichen Endpoint; verwirrende Fehlerbilder.
+
+**Suggested fix:**
+Magic-Bytes gegen die Extension prüfen — die Logik existiert in `detect_format`, sie wird beim Upload nur nicht genutzt.
+
+---
+
+### SEC-006: Backend-Container als root, `/docs`+`/openapi.json` öffentlich, `data/` ins Image gebacken
+
+**Priority:** Medium
+**Effort:** M
+**Area:** ops / deployment
+
+**Problem:**
+[Dockerfile.backend](Dockerfile.backend) — kein `USER`, kein `HEALTHCHECK`, `COPY data/ data/` nimmt lokale jobs.db/Uploads ins Image. [auth.py:148-156](src/core/auth.py#L148-L156) exempts `/docs` und `/openapi.json` von Auth; die Caddy-Route exponiert beide öffentlich.
+
+**Impact:**
+API-Oberfläche öffentlich einsehbar; Container-Kompromittierung = root; potenziell Kundendaten im Image.
+
+**Suggested fix:**
+Non-root-User + HEALTHCHECK; `data/` per .dockerignore ausschließen (Volume existiert); /docs in Prod deaktivieren oder hinter Auth.
+
+---
+
+### Ops / Konfiguration
+
+---
+
+### OPS-001: Dependencies ungepinnt (nur Untergrenzen, kein Lockfile)
+
+**Priority:** High
+**Effort:** S
+**Area:** ops
+
+**Problem:**
+[requirements.txt](requirements.txt) verwendet ausschließlich `>=`. Jeder Build zieht andere Versionen (openai-SDK-Majors, pymupdf-API-Änderungen) — nicht reproduzierbar.
+
+**Impact:**
+"Gestern lief es noch"-Deployments; unkontrollierte Updates.
+
+**Suggested fix:**
+pip-compile/uv-Lockfile; Renovate/Dependabot.
+
+---
+
+### OPS-002: `/health` prüft nichts; keine Backend-Healthchecks in Compose
+
+**Priority:** Medium
+**Effort:** S
+**Area:** ops
+
+**Problem:**
+[main.py:79-81](src/api/main.py#L79-L81) liefert statisch ok; [docker-compose.prod.yml](docker-compose.prod.yml) hat für backend/caddy keine healthchecks. Azure-Erreichbarkeit, jobs.db-Schreibbarkeit, Template-/Stammdaten-Existenz werden nie geprüft.
+
+**Impact:**
+Toter Worker, volle Disk oder fehlender Azure-Key fallen erst beim nächsten Kunden-Upload auf.
+
+**Suggested fix:**
+Deep-Health (DB-Write-Probe, Config/Template/Kataloge vorhanden, optional Azure-Ping gecacht); compose-healthchecks + `depends_on: condition: service_healthy`.
+
+---
+
+### OPS-003: Keine CI-Pipeline
+
+**Priority:** High
+**Effort:** M
+**Area:** ops
+
+**Problem:**
+Kein CI-Workflow im Repo. 286 Tests existieren, werden aber nicht erzwungen (Commit `c85ef95 "r"` zeigt ungeprüftes Pushen).
+
+**Impact:**
+Die Zero-False-Positive-Suite schützt nur, wenn sie verpflichtend läuft.
+
+**Suggested fix:**
+GitHub Actions: ruff + pytest (LLM-freie Marker) + frontend test/build + gitleaks; Branch-Protection.
+
+---
+
+### OPS-004: Azure nicht erreichbar ⇒ Job-Fail ohne Degradation, Fehlerklassen oder Re-Run
+
+**Priority:** Medium
+**Effort:** M
+**Area:** pipeline / api
+
+**Problem:**
+[pipeline_runner.py:50-66](src/api/pipeline_runner.py#L50-L66) — LLM-Init-/Mapping-Fehler ⇒ `failed`, Nutzer muss manuell neu hochladen (bewusst kein Resume, [job_queue.py](src/api/job_queue.py#L10-L13)). Kein "Azure down"-Hinweis, kein Re-Run-Button (Datei liegt noch in uploads/), keine Unterscheidung transient/permanent.
+
+**Impact:**
+Bei Azure-429/Timeout-Phasen sieht der Einkäufer nur rote, fehlgeschlagene Jobs — gefühlte Instabilität.
+
+**Suggested fix:**
+Fehlerklassen am Job; "Erneut verarbeiten"-Endpoint (Re-Enqueue derselben Datei); Statusbanner bei gehäuften Azure-Fehlern.
+
+---
+
+### OPS-005: Stammdaten-Dateien fehlen/korrupt ⇒ stiller Leerlauf statt Fail-fast
+
+**Priority:** Medium
+**Effort:** S
+**Area:** stammdaten_matching
+
+**Problem:**
+[master_data_matcher.py:30-35](src/transform/master_data_matcher.py#L30-L35) — fehlende Datei ⇒ Warning + leerer Katalog ⇒ alle Matches "no_match". Korruptes JSON ⇒ unbehandelte Exception beim ersten Match. Kein Start-Check, kein Health-Signal; die Settings-UI kann die Dateien direkt überschreiben.
+
+**Impact:**
+Eine versehentlich geleerte materials.json degradiert die GREEN-Rate kommentarlos auf nahe null — sieht aus wie ein Modellproblem.
+
+**Suggested fix:**
+Kataloge beim Start laden + validieren (Mindestanzahl, Pydantic-Schema); Ergebnis in /health + /settings/system; Schreib-Endpoints gegen dasselbe Schema validieren.
+
+---
+
+### OPS-006: Kein Test-/Offline-Modus für die Pipeline (WINFORM_TEST_MODE-Äquivalent fehlt)
+
+**Priority:** Medium
+**Effort:** M
+**Area:** pipeline / ops
+
+**Problem:**
+Es gibt keinen Schalter, die Pipeline ohne Azure zu fahren (Mock-LLM, aufgezeichnete Antworten). `parse_file(llm=None)` fällt auf den Legacy-Parser zurück; Mapping/Scoring brauchen Live-Calls. Demos, lokale Entwicklung und CI hängen an Live-Credentials.
+
+**Impact:**
+CI kann den E2E-Pfad nicht testen; Kundendemos hängen am Azure-Wetter.
+
+**Suggested fix:**
+`LLM_MODE=mock|live` mit deterministischem Fixture-LLM (aufgezeichnete Antworten pro POC-PDF); Mock-Pfad als CI-E2E-Gate.
+
+---
+
+### OPS-007: Modell-/Region-Drift zwischen Code, Doku und Deploy-Beispiel
+
+**Priority:** Low
+**Effort:** S
+**Area:** ops / docs
+
+**Problem:**
+Code-Default `gpt-4.1-mini` ([azure_openai.py:93-94](src/llm/azure_openai.py#L93-L94)); [.env.deploy.example](.env.deploy.example): `gpt-4o`/`gpt-4o-mini` + `2025-01-01-preview`; CLAUDE.md: GPT-4o/West Europe; Zielvorgabe: Sweden Central; [vision_verifier.py:205-210](src/scoring/vision_verifier.py#L205-L210) kommentiert "always uses GPT-4o", nutzt aber model_main. Aus dem Repo ist nicht ablesbar, welches Modell in Prod antwortet.
+
+**Impact:**
+Eval-Ergebnisse nicht reproduzierbar; DSGVO-Aussage ("Sweden Central") nicht belegbar.
+
+**Suggested fix:**
+Eine Quelle der Wahrheit; Modell + Region in /settings/system und im JOB_METRICS-Log ausweisen.
+
+---
+
+### OPS-008: Unbegrenzte `.bak`-Akkumulation; keine Retention für Uploads/Exports (DSGVO)
+
+**Priority:** Low
+**Effort:** S
+**Area:** ops
+
+**Problem:**
+[settings.py:62-69](src/api/routes/settings.py#L62-L69) legt bei jedem Save ein Backup an, nichts räumt auf. data/uploads und data/exports (Kundendaten!) wachsen unbegrenzt, keine Lösch-/Retention-Policy.
+
+**Impact:**
+Disk-Full killt SQLite-Writes; DSGVO-Risiko (Art. 5 Speicherbegrenzung) durch unbegrenzte Aufbewahrung von Kunden-BOMs.
+
+**Suggested fix:**
+Retention-Job (konfigurierbar, z. B. 90 Tage), .bak-Rotation (letzte 5), Disk-Füllstand in /health.
+
+---
+
+### Architektur
+
+---
+
+### ARCH-001: Lock 2b (OpenDataLoader-Fallback inkl. 50k-Token-Cap) existiert nicht im Deploy-Code
+
+**Priority:** High
+**Effort:** L
+**Area:** pipeline
+
+**Problem:**
+`grep -ri opendataloader src/ tests/ scripts/` → 0 Treffer auf `deploy/vps-v1`. Die Arbeit liegt auf dem unmerged Branch `feature/opendataloader-evaluation` (Evaluations-Outputs in `evaluation/output/` belegen die Experimente, inkl. ZF). Der versprochene Fallback samt 50k-Token-Cap ist im produktiven Pfad nicht vorhanden.
+
+**Impact:**
+Anforderungs-Lücke (siehe Audit). Dokumente, bei denen RB-1 ablehnt und Vision schwach ist, haben keine dritte Strukturquelle; der ZF-Token-Bloat-Schutz ist nirgends implementiert.
+
+**Suggested fix:**
+Entscheid herbeiführen: Branch evaluieren → mergen (Token-Cap als harter Guard + Tests) oder Anforderung offiziell streichen und Doku korrigieren.
+
+---
+
+### ARCH-002: "Yellow Recheck" existiert nicht — der Counter-Check prüft nur GREEN-Kandidaten und ist deaktiviert
+
+**Priority:** High
+**Effort:** L
+**Area:** scoring
+
+**Problem:**
+Der einzige Recheck-Mechanismus ([vision_verifier.py](src/scoring/vision_verifier.py)) feuert ausschließlich für Zellen, die das Pre-Gate **bestanden** haben ([ensemble_scorer.py:405](src/scoring/ensemble_scorer.py#L405)) — nie für YELLOW. Ein Pass, der gelbe Zellen mit Zusatzkontext erneut prüft und ggf. hebt, ist nicht implementiert. Zusätzlich enable_counter_check=false (BUG-005).
+
+**Impact:**
+Die wirksamste bekannte Maßnahme zur GREEN-Raten-Steigerung **ohne** False-Positive-Risiko fehlt; das Produktversprechen "Yellow Recheck pass" ist unerfüllt.
+
+**Suggested fix:**
+Recheck-Pass für YELLOW-Zellen: Vision-Einzelfeld-Check (Scan-Pfad) bzw. erweiterter Kontext-Prompt (Text-Pfad); YELLOW→GREEN nur, wenn zusätzlich alle bestehenden Gates erfüllt sind.
+
+---
+
+### ARCH-003: Excel-Quellen können strukturell nie GRÜN werden — undokumentiert
+
+**Priority:** Medium
+**Effort:** S (Doku) / XL (deterministischer Excel-GREEN-Pfad)
+**Area:** scoring / product
+
+**Problem:**
+[green_gate.py:93-94](src/scoring/green_gate.py#L93-L94) — `if not source_is_pdf: return False, ["NO_PDF_EVIDENCE"]`. Excel-Uploads (deterministisch lesbare Quellen!) sind kategorisch GREEN-unfähig, während der Upload .xlsx prominent akzeptiert. Der Nutzer sieht eine durchgängig gelbe Tabelle ohne Erklärung.
+
+**Impact:**
+Paradox: die zuverlässigste Quellart liefert die schlechteste Automationsquote — Erwartungsbruch beim Stakeholder.
+
+**Suggested fix:**
+Kurzfristig: No-Green-Hinweis pro Quelle in UI/Export. Mittelfristig: deterministische Excel-GREEN-Policy (Zellwert = Quellwert ist per openpyxl beweisbar; einziges Restrisiko ist die Mapping-Semantik → ARCH-005 als Voraussetzung).
+
+---
+
+### ARCH-004: Feedback-Loop nur viertel-geschlossen — Korrekturen wirken ausschließlich als Few-Shots im Spalten-Mapping
+
+**Priority:** Medium
+**Effort:** L
+**Area:** feedback_store / learning
+
+**Problem:**
+Korrekturen werden gespeichert ([feedback_store.py](src/export/feedback_store.py)) und in den Mapping-Prompt injiziert ([llm_column_mapper.py:138-183](src/mapping/llm_column_mapper.py#L138-L183) — gut). Aber: (1) Wert-Korrekturen landen nie im Master-Data-Matcher (kein Alias-Lernen); (2) `data/learned_mappings/` als per-Kunde-Registry ist ungenutzt; (3) Row-Exclusion-Muster werden nicht generalisiert; (4) Few-Shots sind die letzten 8 ohne Dedupe/Konflikt-Handling. Und: wegen DATA-001 ist `customer` in Produktion leer — der Loop ist faktisch tot.
+
+**Impact:**
+"Per-customer learning" ist als Versprechen nur teilweise eingelöst; wiederkehrende Kunden produzieren dieselben YELLOWs erneut.
+
+**Suggested fix:**
+Korrektur-Typen routen: Wert-Korrekturen → Alias-Vorschläge für materials.json (Review in Settings-UI), Mapping-Korrekturen → persistiertes per-Kunde-Spaltenmapping (vor dem LLM-Call angewendet), Exclusion-Muster → row_classifier-Hints.
+
+---
+
+### ARCH-005: Keine unabhängige Verifikation der semantischen Spaltenzuordnung (größter systematischer Wrong-GREEN-Vektor)
+
+**Priority:** High
+**Effort:** L
+**Area:** mapping / scoring
+
+**Problem:**
+Locks 2/3 verifizieren, dass der **Wert** an der Quellposition steht und ggf. im Katalog existiert — nicht, dass die **Spalte semantisch richtig gemappt** ist. Einziges Gegengewicht sind die Heuristiken des mapping_validator (Typ-Checks, 2 Swap-Regeln). Ein konfident falsches LLM-Mapping (Rohmaß→Fertigmaß, Lieferanten-Nr→Hersteller-Teilnr.) erfüllt alle Zell-Gates und produziert spaltenweise falsche GRÜNs (vgl. BUG-006/007).
+
+**Impact:**
+⚠️ ZERO-FALSE-POSITIVE RISK — der wahrscheinlichste Mechanismus für ein **systematisches** falsches GRÜN (ganze Spalte statt Einzelzelle); exakt das Szenario, an dem die 4 Vorgänger-Anbieter gescheitert sind.
+
+**Suggested fix:**
+Zweiter, unabhängiger Mapping-Call (anderes Prompt-Framing/Modell) mit Konsens-Pflicht für GREEN-fähige Spalten; Feld-Policy-Matrix: Kategorie-A-Spalten ohne Master-Data-/Format-Anker bleiben ohne Konsens YELLOW-gedeckelt.
+
+---
+
+### PERF-001: Vision-Pfad seriell (1 Seite gleichzeitig, 2 Calls/Seite, Retries); kein Job-Timeout
+
+**Priority:** Medium
+**Effort:** M
+**Area:** vision_lock / performance
+
+**Problem:**
+`_MAX_CONCURRENT_PAGES = 1` ([pdf_parser.py:50](src/ingestion/pdf_parser.py#L50)) serialisiert Seiten (nur das Dual-Paar läuft parallel). Ein 10-seitiger Scan = ≥ 20 Vision-Calls seriell à 10–30 s + JSON-Retries ⇒ 5–15 Minuten; ein 100-Positionen-BOM über viele Seiten entsprechend mehr. `JOB_CONCURRENCY=1` verstärkt das (1 BOM blockiert die Queue). Kein per-Job-Gesamttimeout — ein hängender Job blockiert den einzigen Worker (LLM-Timeout 300 s × Retries als einziges Limit). Fortschritt springt 0.1→0.3 ohne Seiten-Granularität.
+
+**Impact:**
+Demo-/Produktionslatenz; Queue-Stau bei parallelen Uploads.
+
+**Suggested fix:**
+Seiten-Parallelität konfigurierbar (2–3 je nach Azure-TPM), per-Job-Timeout mit sauberem failed, Seiten-Fortschritt an job_store melden.
+
+---
+
+### PERF-002: Counter-Check (wenn aktiviert) ruft Vision pro GREEN-Kandidaten-Zelle einzeln und sequenziell
+
+**Priority:** Medium
+**Effort:** M
+**Area:** scoring / cost
+
+**Problem:**
+[ensemble_scorer.py:405-443](src/scoring/ensemble_scorer.py#L405-L443) — ein Call **pro Zelle**, sequenziell im Scoring-Loop. Ein 100-Zeilen-BOM mit 10 GREEN-Kandidaten pro Zeile = bis zu 1000 Vision-Calls. Das ist mutmaßlich der reale Grund, warum enable_counter_check in Prod aus ist — die Kostenstruktur erzwingt das Abschalten des Sicherheitsmechanismus.
+
+**Impact:**
+Sicherheits-Feature ökonomisch unbenutzbar → führt direkt zu BUG-005.
+
+**Suggested fix:**
+Pro Seite batchen (ein Call verifiziert alle Kandidaten-Felder einer Seite, strukturierter Output pro Feld); alternativ Stichproben-Modus (alle Kategorie-A + N % Sample). Render-Cache existiert bereits.
+
+---
+
+### Frontend / Daten
+
+---
+
+
+### FE-002: Pipeline-Fehlerzustände im UI unvollständig (Queue-Position, Fehlerklassen, Re-Run)
+
+**Priority:** Low
+**Effort:** M
+**Area:** frontend
+
+**Problem:**
+[use-job-pipeline.ts](frontend/src/lib/use-job-pipeline.ts) kennt nur pending/processing/completed/failed; `error` wird roh angezeigt (englische Stage-Meldungen). Keine Queue-Position (JOB_CONCURRENCY=1!), kein Retry (vgl. OPS-004).
+
+**Impact:**
+Bei parallelen Uploads wirkt das System eingefroren ("10 % Verarbeitung" über Minuten).
+
+**Suggested fix:**
+Queue-Position exponieren; Fehlerklassen lokalisieren; "Erneut verarbeiten"-Aktion.
+
+---
+
+### FE-003: Zwei verschiedene "GREEN-Quoten" (automation_rate vs. green_pct), beide durch NEUTRAL-Inflation verzerrt
+
+**Priority:** Low
+**Effort:** S
+**Area:** frontend / stats
+
+**Problem:**
+[stats.py:54](src/api/routes/stats.py#L54) rechnet `green/total_cells` (inkl. NEUTRAL), die Audit-Properties `green_pct` auf `total_scored`. Mit `empty_non_required_as_neutral=true` (BUG-013) ist beides zusätzlich geschönt. Zeitersparnis-Formel (`MINUTES_PER_ROW=3`) ist unkalibriert.
+
+**Impact:**
+Stakeholder-KPIs nicht konsistent erklärbar — gefährlich, wenn Mahler nachrechnet.
+
+**Suggested fix:**
+Eine definierte Quote (green/total_scored) überall; NEUTRAL separat; Zeitersparnis mit Schaufler kalibrieren.
+
+---
+
+### DATA-001: `infer_customer` liefert für echte Uploads "" — per-Kunde-Lernen und Statistik laufen ins Leere
+
+**Priority:** High
+**Effort:** M
+**Area:** feedback_store / api
+
+**Problem:**
+[file_router.py:47-72](src/ingestion/file_router.py#L47-L72) — der Kunde wird aus der Verzeichnisstruktur geraten; produktive Uploads liegen in `data/uploads/` ⇒ `customer=""` für **jeden** echten Job. Damit ist das Few-Shot-Lernen wirkungslos (`_format_learned_corrections`: `if not customer: return ""`), und die Statistik gruppiert alles unter "Unbekannt".
+
+**Impact:**
+Der gesamte Lern-Loop ist produktiv tot, obwohl implementiert; Statistikseite zeigt "Unbekannt".
+
+**Suggested fix:**
+Kunde als Pflicht-Parameter beim Upload (Dropdown aus Settings-Kundenliste) oder LLM-Erkennung aus dem Dokumentkopf mit Bestätigung; customer am Job editierbar.
+
+---
+
+### DATA-002: Excel-Parser ohne Merged-Cell-Propagation, Single-Sheet-Heuristik, schwache Header-Erkennung
+
+**Priority:** Medium
+**Effort:** M
+**Area:** ingestion / excel
+
+**Problem:**
+[excel_parser.py:113-151](src/ingestion/excel_parser.py#L113-L151) — MergedCells werden `None` (vertikal gemergte Positionsspalten verlieren alle Folgezeilen-Werte); genau ein Sheet wird geparst; Header = "Zeile mit den meisten Text-Zellen in den ersten 20". Auf dem Excel-Pfad gibt es zudem keinen Positions-Anker (`raw_pdf_positions` leer, guard_basis=row_count_fallback) — schwächere Zero-Data-Loss-Netze als beim PDF.
+
+**Impact:**
+Excel-BOMs mit gemergten Zellen (häufig) verlieren still Zellwerte.
+
+**Suggested fix:**
+Merged-Range-Werte in alle überdeckten Zellen propagieren; Sheets per BOM-Score ranken; Excel-seitigen Vollständigkeits-Anker ergänzen.
+
+---
+
+### DATA-003: Stammdaten-Import aus der Schaufler-Vorlage fehlt — nur 18/363 Werkstoffe, 0/181 Hersteller, 12/15 Teilegruppen aktiv
+
+**Priority:** Critical (für die GREEN-Rate; kein False-Positive-Risiko)
+**Effort:** M
+**Area:** stammdaten_matching
+
+**Problem:**
+Das Sheet `Stammdaten` in [config/target_template.xlsx](config/target_template.xlsx) enthält die vollständigen Kataloge (nachgezählt: **363 Werkstoffe**, **181 Hersteller**, **15 Teilegruppen**, dazu Härte-/Nitrier-/Beschichtungslisten). Die Laufzeit-Kataloge ([materials.json](config/master_data/materials.json): 18 Einträge, [validation_rules.json](config/master_data/validation_rules.json): 12 Teilegruppen, **kein** Hersteller-Katalog) wurden nie daraus befüllt. Hersteller-Matching existiert als Code-Pfad gar nicht (Manufacturer ist nur generischer Kategorie-B-Textvergleich).
+
+**Impact:**
+Lock 3 läuft gegen ~5 % des realen Werkstoff-Katalogs: fast alle Material-Zellen enden als `passthrough` (YELLOW) oder hängen am `werkstoff_nr_format`-Notnagel; Teilegruppen D1 u. a. können nie matchen; Hersteller werden nie validiert. **Größter einzelner Hebel für die GREEN-Rate überhaupt.**
+
+**Suggested fix:**
+Import-Skript Template-Stammdaten → materials.json / validation_rules.json / neues manufacturers.json (idempotent, mit Diff-Report); Hersteller-Katalog + exakter/normalisierter Match im Matcher + Manufacturer in Transform/Comparator als Master-Data-Feld; CI-Check "Template-Stammdaten == Laufzeit-Kataloge".
+
+---
+
+### DATA-004: `werkstoff_nr_format`/M2 erzeugt GREEN-fähige Material-IDs außerhalb des Katalogs — jede freistehende 5-stellige Zahl wird Werkstoff
+
+**Priority:** Medium
+**Effort:** S
+**Area:** stammdaten_matching
+
+**Problem:**
+[master_data_matcher.py:165-184, 323-334](src/transform/master_data_matcher.py#L165-L184) — eine format-valide DIN-Nummer ohne Katalogeintrag wird mit 0.92 akzeptiert (`werkstoff_nr_format`, GREEN-fähig auf dem Text-Pfad). Der M2-Pfad akzeptiert zusätzlich **jede freistehende 5-stellige Zahl** mit führender 1/2 ("12343"→1.2343) — ein Artikelcode "20283" in einer falsch gemappten Spalte wird zur Werkstoffnummer 2.0283.
+
+**Impact:**
+⚠️ ZERO-FALSE-POSITIVE RISK (niedrig-moderat; durch ^…$-Anker und Text-Pfad-Bindung eingegrenzt, aber M2 ist die schwächste Stelle).
+
+**Suggested fix:**
+M2 nur akzeptieren, wenn die Spalte per Header **und** Mehrheits-Evidenz Materialspalte ist; nach DATA-003 (voller Katalog) M3/M2 auf YELLOW-Vorschlag zurückstufen.
+
+---
+
+### TEST-001: Keine False-GREEN-Canary-Suite auf Dokumentebene; Suite läuft gegen Code-Defaults statt Prod-Config
+
+**Priority:** High
+**Effort:** L
+**Area:** tests / quality
+
+**Problem:**
+Die Suite (286 Tests, inkl. test_zero_false_positive.py und ZDL-1..4 — gut!) testet Gate-Logik mit konstruierten Inputs. Es fehlt die E2E-Canary-Klasse: präparierte PDFs mit bekannten Fallen (vertauschte Spalten, doppelte Positionsnummern mit unterschiedlichen Teilen, manipulierte Menge, Werkstoff-Tippfehler am Fuzzy-Cutoff) mit der Assertion "diese Zelle darf NIE GREEN sein". Genau die Pfade aus BUG-001…010 hätten Canaries gefangen. Außerdem laufen Tests gegen Code-Defaults — die Lockerungen der echten app_config.yaml (BUG-005) sind für die Suite unsichtbar.
+
+**Impact:**
+Regressionsschutz für den Kernvertrag fehlt auf der Ebene, auf der er bricht (Komponenten-Zusammenspiel + Prod-Config).
+
+**Suggested fix:**
+Canary-Korpus aus den 19 POC-PDFs (mutierte Kopien mit Ground-Truth); Suite zusätzlich mit produktiver Config fahren; "GREEN-Diff"-Report pro Commit.
+
+---
+
+### TEST-002: Legacy-Parser-E2E-Test schlägt fehl (GF 0 Zeilen) — Suite ist nicht grün
+
+**Priority:** Medium
+**Effort:** S
+**Area:** tests
+
+**Problem:**
+`tests/test_ingestion/test_parse_all.py::test_has_rows[GF/STL_08.05.13.pdf]` schlägt fehl: der LLM-lose Testpfad nutzt den Legacy-Parser, der am rotierten GF-Layout scheitert (0 Zeilen). Im LLM-Betrieb übernimmt der Vision-Fallback — der Test prüft also einen Pfad, der das Dokument nie bedienen soll, und maskiert dabei, dass die Suite "rot" ist.
+
+**Impact:**
+Eine dauerhaft rote Suite erzieht zum Ignorieren von Failures (Broken-Windows).
+
+**Suggested fix:**
+Test als `xfail(reason="GF braucht Vision-Fallback; Legacy-Parser deckt rotierte Matrix nicht ab")` markieren oder den erwarteten Fallback explizit testen.
+
+---
+
+### TEST-003: `test_job_source_route.py` schlägt mit 401 fehl — Auth-Modulzustand leakt in die Tests
+
+**Priority:** Medium
+**Effort:** S
+**Area:** tests / auth
+
+**Problem:**
+Beide Tests in [tests/test_job_source_route.py](tests/test_job_source_route.py) erwarten 200/403, bekommen aber 401: `_SETTINGS["login_enabled"]` ist modul-global default `True` ([auth.py:15-25](src/core/auth.py#L15-L25)), und die Tests authentifizieren sich nicht bzw. setzen den Zustand nicht zurück. Je nach Test-Reihenfolge/Umgebung (lokale .env!) kippt das Ergebnis — die Suite ist umgebungsabhängig.
+
+**Impact:**
+Rote Suite + flaky Auth-Verhalten in Tests untergräbt das CI-Gate (OPS-003), bevor es existiert.
+
+**Suggested fix:**
+Auth-Fixture (Login-Session oder `LOGIN_AUTH_ENABLED=false` + `init_auth()` per monkeypatch) für alle API-Tests; `_SETTINGS` nicht als Modul-Global mutieren, sondern über eine reset-bare Struktur.
+
+---
+
+---
+
+## ANFORDERUNGS-AUDIT: Stücklistenagent vs. Lastenheft Rev. 2
+
+> Hinweis: Ein Dokument „Lastenheft Rev. 2" liegt nicht im Repo (docs/ enthält nur BOM-Mapper_Erklaerung.pdf und Pläne). Das Audit prüft gegen die kommunizierten Anforderungen aus dem Review-Briefing + CLAUDE.md + Plandokumenten. Wo das echte Lastenheft abweicht, bitte gegenprüfen.
+
+### BOM PROCESSING
+
+#### REQ-001: PDF-BOM-Upload und Parsing
+**Status:** ✅ Vollständig
+**Fundstelle:** [upload.py:34-70](src/api/routes/upload.py#L34), [structure_normalizer.py:21-115](src/ingestion/structure_normalizer.py#L21), [coordinate_table.py:155-232](src/ingestion/coordinate_table.py#L155)
+**Lücken:** Magic-Byte-Validierung fehlt (SEC-005).
+
+#### REQ-002: Mehrseitige BOMs
+**Status:** ✅ Vollständig (Text-Pfad) / ⚠️ Teilweise (Vision)
+**Fundstelle:** [coordinate_table.py:322-395](src/ingestion/coordinate_table.py#L322) (per-Section-Layout, Folgeseiten ohne Header), [pdf_parser.py:749-791](src/ingestion/pdf_parser.py#L749)
+**Lücken:** Vision-Pfad nutzt nur das Seite-1-Spaltenschema (BUG-017).
+
+#### REQ-003: Gescannte/bildbasierte BOMs (OCR-Fallback)
+**Status:** ⚠️ Teilweise
+**Fundstelle:** [pdf_parser.py:67-243](src/ingestion/pdf_parser.py#L67) (GPT-Vision-Pfad), [green_gate.py:248-278](src/scoring/green_gate.py#L248)
+**Lücken:** Funktioniert als Extraktion, aber GREEN ist auf Scans an den Counter-Check gebunden, der deaktiviert ist (BUG-005) → Scans liefern faktisch 0 % GREEN; Vollständigkeit auf Scans prinzipbedingt nicht garantiert (ehrlich ausgewiesen via completeness_reason — gut).
+
+#### REQ-004: Tabellenstruktur-Erkennung
+**Status:** ✅ Vollständig
+**Fundstelle:** [coordinate_table.py:280-501](src/ingestion/coordinate_table.py#L280) (Bänder/Korridore/Sections), [pdf_parser.py:486-636](src/ingestion/pdf_parser.py#L486) (Vision Phase A)
+**Lücken:** Rotierte/transponierte Layouts (GF) werden vom Text-Pfad korrekt abgelehnt → Vision; Vision selbst bleibt dort schwach.
+
+#### REQ-005: Kopf-/Fußzeilen-Filterung (geometrisch)
+**Status:** ✅ Vollständig
+**Fundstelle:** [coordinate_table.py:47](src/ingestion/coordinate_table.py#L47) (2 %-Trim + inhaltsbasierte Seitenmarker), [pdf_parser.py:359-410](src/ingestion/pdf_parser.py#L359) (8 %-Margin), [row_classifier.py](src/ingestion/row_classifier.py) (verlustfreies Tagging)
+**Lücken:** Zwei verschiedene Margins (2 % vs. 8 %) je Pfad — bewusst, aber undokumentiert.
+
+#### REQ-006: Positionsnummern-Extraktion (alle Formate, auch nicht-ganzzahlig)
+**Status:** ⚠️ Teilweise
+**Fundstelle:** [config/pos_patterns.yaml](config/pos_patterns.yaml), [ensemble_scorer.py:74-108](src/scoring/ensemble_scorer.py#L74), [pdf_parser.py:1204-1224](src/ingestion/pdf_parser.py#L1204)
+**Lücken:** ZDL-3 ist adressiert: Muster konfigurierbar (1-2, K-3, A-12), bare Integers kommen kontextsicher aus der Positionsspalte. Aber: "1.0"≠"1"-Normalisierung fehlt (BUG-015); alphanumerische Sonderformate ("10a", "P.1.2") nur über YAML-Erweiterung pro Instanz.
+
+#### REQ-007: Werkstoff-Extraktion und -Matching
+**Status:** ⚠️ Teilweise
+**Fundstelle:** [master_data_matcher.py:78-197](src/transform/master_data_matcher.py#L78), [pipeline.py:412-439](src/transform/pipeline.py#L412)
+**Lücken:** Matching-Logik gut (Alias/DIN-Nr/Fuzzy mit Familien-Guard), aber der Katalog enthält nur 18 von 363 Werkstoffen (DATA-003) — datenseitig nicht erfüllt.
+
+#### REQ-008: Hersteller-Extraktion und -Matching
+**Status:** ❌ Nicht implementiert
+**Fundstelle:** — (kein Hersteller-Katalog, kein Matcher-Pfad; Manufacturer nur generischer Textvergleich Kategorie B, [value_comparator.py:34-39](src/scoring/value_comparator.py#L34))
+**Lücken:** 181 Hersteller stehen ungenutzt im Template-Stammdaten-Sheet (DATA-003).
+
+#### REQ-009: Teilegruppen-Extraktion und -Matching (15 Codes)
+**Status:** ⚠️ Teilweise
+**Fundstelle:** [master_data_matcher.py:238-253](src/transform/master_data_matcher.py#L238), [validation_rules.json](config/master_data/validation_rules.json)
+**Lücken:** Exakter Code-Match implementiert, aber nur 12 von 15 Codes im Laufzeit-Katalog (u. a. D1 fehlt; Template hat 15).
+
+#### REQ-010: Mengen-Extraktion
+**Status:** ✅ Vollständig
+**Fundstelle:** [pipeline.py:626-649](src/transform/pipeline.py#L626) (integer_coerce), [value_comparator.py:525-561](src/scoring/value_comparator.py#L525)
+**Lücken:** Verifikations-Bias auf dem Anchor-Fallback (BUG-002).
+
+#### REQ-011: Zeichnungsnummern-Extraktion
+**Status:** ⚠️ Teilweise
+**Fundstelle:** Customer Part Number (Spalte B) als nächstliegendes Feld; "drawing_number" nur als Export-Meta ([excel_exporter.py:310-321](src/export/excel_exporter.py#L310))
+**Lücken:** Kein dediziertes Zeichnungsnummern-Feld im Zielschema; die Meta-Zeichnungsnummer wird nirgends aus dem PDF extrahiert.
+
+#### REQ-012: Alle 363 Werkstoffe in Stammdaten
+**Status:** ❌ Nicht implementiert (18/363 aktiv)
+**Fundstelle:** [config/master_data/materials.json](config/master_data/materials.json); Quelle vorhanden in [config/target_template.xlsx](config/target_template.xlsx) Sheet "Stammdaten"
+**Lücken:** DATA-003.
+
+#### REQ-013: Alle 183 Hersteller in Stammdaten
+**Status:** ❌ Nicht implementiert (0 aktiv; 181 im Template-Sheet gezählt)
+**Fundstelle:** —
+**Lücken:** DATA-003 / REQ-008.
+
+### CLASSIFICATION
+
+#### REQ-014: GREEN = 100 % sicher (Zero false positives)
+**Status:** ⚠️ Teilweise
+**Fundstelle:** [green_gate.py:81-165](src/scoring/green_gate.py#L81) (zentrales Gate — gute Architektur), [ensemble_scorer.py](src/scoring/ensemble_scorer.py)
+**Lücken:** Konkrete Durchbruchspfade: BUG-001/002/003/004/006/007/008/009; Prod-Config schwächt zusätzlich (BUG-005). Das Gate-Design ist richtig, die Evidenzquellen dahinter sind teils zirkulär.
+
+#### REQ-015: YELLOW = möglicher Match, Review nötig
+**Status:** ✅ Vollständig
+**Fundstelle:** [ensemble_scorer.py:451-524](src/scoring/ensemble_scorer.py#L451), Frontend review-grid
+**Lücken:** RED→YELLOW-Demo-Overrides verwässern die Semantik (BUG-014); NEUTRAL-Maskierung (BUG-013).
+
+#### REQ-016: RED = kein Match
+**Status:** ✅ Vollständig
+**Fundstelle:** [ensemble_scorer.py:469-490](src/scoring/ensemble_scorer.py#L469), synthetische MISSING-Zeilen [position_reconciler.py](src/reconciliation/position_reconciler.py)
+**Lücken:** —
+
+#### REQ-017: Triple-Lock end-to-end erzwungen
+**Status:** ⚠️ Teilweise
+**Fundstelle:** Lock-Aufrufe in [pipeline_runner.py:62-156](src/api/pipeline_runner.py#L62)
+**Lücken:** Auf dem Text-Pfad werden Lock-2-Vetos teils ignoriert/gestrippt (`_TEXT_PATH_IGNORED_VETOES`, BUG-003); Counter-Check prod-deaktiviert; Lock 2b fehlt (ARCH-001). Positiv: der Lock-Status pro Zelle ist im Audit sichtbar (green_evidence).
+
+#### REQ-018: Lock 1 — Vision (GPT-4.1-mini)
+**Status:** ✅ Vollständig
+**Fundstelle:** [pdf_parser.py:67-243](src/ingestion/pdf_parser.py#L67), [azure_openai.py:93](src/llm/azure_openai.py#L93) (Default gpt-4.1-mini)
+**Lücken:** Deploy-Beispiel konfiguriert gpt-4o (OPS-007).
+
+#### REQ-019: Lock 2 — PyMuPDF-Koordinaten-Verifikation
+**Status:** ⚠️ Teilweise
+**Fundstelle:** [pdf_parser.py:1716-1908](src/ingestion/pdf_parser.py#L1716) (Vision-Pfad), [coordinate_table.py](src/ingestion/coordinate_table.py) (Text-Pfad: die Extraktion selbst ist koordinatenbasiert)
+**Lücken:** Umgehbar: bei fehlender Koordinaten-Location greift der schwache Volltext-Fallback (BUG-001), der Lock-2-Vetos sogar aufheben kann (BUG-003); Punkt-Normalisierung verfälscht Bestätigungen (BUG-010).
+
+#### REQ-020: Lock 2b — OpenDataLoader-Fallback mit 50k-Token-Cap
+**Status:** ❌ Nicht implementiert (nur unmerged Branch `feature/opendataloader-evaluation`)
+**Fundstelle:** —
+**Lücken:** ARCH-001.
+
+#### REQ-021: Lock 3 — deterministisches Stammdaten-Matching
+**Status:** ⚠️ Teilweise
+**Fundstelle:** [master_data_matcher.py](src/transform/master_data_matcher.py)
+**Lücken:** Deterministisch bis auf Fuzzy-Zweige (GREEN-fähig, BUG-008); Katalog zu 5 % befüllt (DATA-003); Format-Notnagel M2/M3 (DATA-004).
+
+#### REQ-022: Yellow-Recheck-Pass
+**Status:** ❌ Nicht implementiert
+**Fundstelle:** Counter-Check existiert nur für GREEN-Kandidaten ([ensemble_scorer.py:405](src/scoring/ensemble_scorer.py#L405)) und ist deaktiviert
+**Lücken:** ARCH-002.
+
+#### REQ-023: Feedback-Store / per-Kunde-Lernen
+**Status:** ⚠️ Teilweise
+**Fundstelle:** [feedback_store.py](src/export/feedback_store.py), [llm_column_mapper.py:138-183](src/mapping/llm_column_mapper.py#L138) (Few-Shot-Injection), [routes/feedback.py](src/api/routes/feedback.py)
+**Lücken:** Produktiv wirkungslos, weil customer="" (DATA-001); nur Mapping-Few-Shots, kein Alias-/Mapping-Registry-Lernen (ARCH-004).
+
+### EXCEL OUTPUT
+
+#### REQ-024: Exaktes Spalten-Mapping der Schaufler-Vorlage
+**Status:** ✅ Vollständig
+**Fundstelle:** [target_schema.json](config/target_schema.json) (30 Felder A–AD), [excel_exporter.py:98-254](src/export/excel_exporter.py#L98) (Template laden, Stile aus Referenzzeile, Meta-Zeilen)
+**Lücken:** —
+
+#### REQ-025: Zell-Level-Farbcodierung (Grün/Gelb/Rot)
+**Status:** ✅ Vollständig
+**Fundstelle:** [excel_exporter.py:39-51, 226-228](src/export/excel_exporter.py#L39) (+ NEUTRAL-/MANUAL-Farben, Audit-Sheet)
+**Lücken:** Zellen ohne Audit-Eintrag bleiben ungefärbt (kosmetisch).
+
+#### REQ-026: Alle Spalten der echten Schaufler-Vorlage
+**Status:** ✅ Vollständig
+**Fundstelle:** Schema 30 Spalten = Template "Stückliste" (A–AD); [result_builder.py:74-150](src/api/result_builder.py#L74) spiegelt Layout inkl. Header-Zeilen/Defaults in die UI
+**Lücken:** —
+
+#### REQ-027: Zero-Loss-Assertion vor Export
+**Status:** ✅ Vollständig
+**Fundstelle:** [excel_exporter.py:113-184](src/export/excel_exporter.py#L113) — Set-Guard auf Band-IDs (Text-Pfad) bzw. Positions-IDs, Count-Fallback, Reviewer-Exclusions korrekt herausgerechnet, Save wird verweigert
+**Lücken:** Auf dem Vision-Pfad schwächer (Positions-Set statt Bänder, BUG-011); Excel-Quellen nur Count-Fallback (DATA-002).
+
+#### REQ-Z1: Zero-Data-Loss-Lücken aus dem Vor-Audit (ZDL-1…4)
+**Status:** ✅ Weitgehend behoben
+- **ZDL-1 (Vision-Selbstreferenz):** adressiert durch ehrliches `completeness_guaranteed=false` + Begründung ([ensemble_scorer.py:913-950](src/scoring/ensemble_scorer.py#L913)); die Limitierung selbst bleibt prinzipbedingt, ist aber sichtbar.
+- **ZDL-2 (Guard-Selbstabschaltung ohne Anker):** behoben — `row_count_fallback` statt Skip ([position_reconciler.py:127-141](src/reconciliation/position_reconciler.py#L127)).
+- **ZDL-3 (Integer-only-Regex):** behoben — konfigurierbare Muster + Positionsspalten-Union ([pdf_parser.py:1204-1224](src/ingestion/pdf_parser.py#L1204)); Rest-Lücke BUG-015.
+- **ZDL-4 (Export-Set-Guard):** behoben — Set-Vergleich statt Count ([excel_exporter.py:119-166](src/export/excel_exporter.py#L119)), Tests vorhanden.
+
+### UI / FRONTEND
+
+#### REQ-028: PDF-Viewer (ohne JSON-Fehler)
+**Status:** ✅ Vollständig
+**Fundstelle:** [pdf-source-viewer.tsx](frontend/src/components/pdf-source-viewer.tsx) — react-pdf per Runtime-Import mit Catch; ein pdfjs-Eval-Fehler (der "JSON error" aus dem Feasibility-Meeting) degradiert kontrolliert auf den iframe-Viewer; /source wird inline gestreamt ([jobs.py:168-190](src/api/routes/jobs.py#L168)); Bbox-Highlight aus source_location
+**Lücken:** —
+
+#### REQ-029: Excel-Ansicht mit Farbcodierung
+**Status:** ✅ Vollständig
+**Fundstelle:** [result-table.tsx](frontend/src/components/result-table.tsx) / [review-grid.tsx](frontend/src/components/review-grid.tsx) (ag-grid, Status pro Zelle, Template-Layout aus result_builder)
+**Lücken:** —
+
+#### REQ-030: Schaufler-CI (anthrazit, rot, flach, dichte Tabellen)
+**Status:** ❌ Nicht implementiert
+**Fundstelle:** [globals.css](frontend/src/app/globals.css): Blau #004b87, helles Theme, radius 0.5rem, Schatten; rowHeight 28
+**Lücken:** FE-001 — mit Stakeholder klären (evtl. bewusste Neu-Entscheidung), dann Token-Pass.
+
+#### REQ-031: Verarbeitungsstatus / Fortschritt
+**Status:** ⚠️ Teilweise
+**Fundstelle:** [use-job-pipeline.ts](frontend/src/lib/use-job-pipeline.ts) (Polling 1.5 s, Prozentanzeige), [processing-status.tsx](frontend/src/components/processing-status.tsx)
+**Lücken:** Grobe Stufen (0.1/0.3/0.5/0.7/0.9), keine Queue-Position, kein Re-Run (FE-002, OPS-004).
+
+#### REQ-032: Manuelles Override (YELLOW→bestätigt durch Einkäufer)
+**Status:** ✅ Vollständig
+**Fundstelle:** [cell_edits.py](src/api/cell_edits.py) (MANUAL_CONFIRMED, Audit-Reason, Export-Regeneration), [feedback.py:98-152](src/api/routes/feedback.py#L98), Row-Exclusion mit Provenance (R3)
+**Lücken:** Override wird sauber als MANUAL_CONFIRMED geführt, nicht als GREEN — gute Trennung. Kein RBAC (jeder Login darf alles).
+
+### API
+
+#### REQ-033: BOM-Upload-Endpoint — **Status:** ✅ Vollständig — [upload.py](src/api/routes/upload.py) (+ bounded Queue, AW-1)
+#### REQ-034: Status-Endpoint — **Status:** ✅ Vollständig — [jobs.py:116-129](src/api/routes/jobs.py#L116)
+#### REQ-035: Ergebnis-Download (Excel) — **Status:** ✅ Vollständig — [jobs.py:148-165](src/api/routes/jobs.py#L148)
+#### REQ-036: Feedback-Endpoint — **Status:** ✅ Vollständig — [feedback.py](src/api/routes/feedback.py)
+
+### DEPLOYMENT
+
+#### REQ-037: Hetzner/VPS Docker Compose
+**Status:** ✅ Vollständig
+**Fundstelle:** [docker-compose.prod.yml](docker-compose.prod.yml), [Caddyfile](Caddyfile) (Auto-HTTPS, Same-Origin-Routing), [DEPLOYMENT.md](DEPLOYMENT.md)
+**Lücken:** Container-Hardening (SEC-006).
+
+#### REQ-038: Azure OpenAI Sweden Central (DSGVO)
+**Status:** ❓ Unklar
+**Fundstelle:** Die Region steht nirgends im Repo; der Endpoint kommt aus .env. CLAUDE.md sagt "West Europe", der Auftrag "Sweden Central".
+**Lücken:** OPS-007 — Region belegen und in /settings/system ausweisen.
+
+#### REQ-039: Health-Checks
+**Status:** ⚠️ Teilweise
+**Fundstelle:** [main.py:79-81](src/api/main.py#L79) (statisch), Frontend-Dockerfile-HEALTHCHECK
+**Lücken:** OPS-002.
+
+#### REQ-040: Graceful Degradation bei AI-Ausfall
+**Status:** ⚠️ Teilweise
+**Fundstelle:** Retry/Backoff mit Retry-After-Respekt ([azure_openai.py:158-216](src/llm/azure_openai.py#L158) — gut), sauberes failed + Orphan-Recovery ([job_store.py:191-215](src/api/job_store.py#L191))
+**Lücken:** Keine Fehlerklassen, kein Re-Run, kein Statusbanner (OPS-004); kein Offline-Modus (OPS-006).
+
+### Audit-Bilanz
+
+| Status | Anzahl | Anteil |
+|---|---|---|
+| ✅ Vollständig | 19 | 47.5 % |
+| ⚠️ Teilweise | 14 | 35 % |
+| ❌ Nicht implementiert | 6 (REQ-008, 012, 013, 020, 022, 030) | 15 % |
+| ❓ Unklar | 1 (REQ-038) | 2.5 % |
+| **Gesamt** | **40** | |
+
+---
+
+## VERBESSERUNGSANALYSE: Kann man es besser machen?
+
+*(Perspektive: Principal ML Engineer / Systemarchitekt, Stand 2026, Randbedingungen: Zero-False-Positive-Vertrag, Azure Sweden Central / DSGVO, Schaufler-Dokumentenmix aus 19 POC-Kunden.)*
+
+### Teil 1: Schwächen der aktuellen Architektur
+
+**Wo sie versagt oder Unsicherheit produziert:**
+
+1. **Die Verifikation prüft Werte, nicht Bedeutung.** Lock 2 beweist "dieser String steht an dieser Stelle", Lock 3 beweist "dieser String existiert im Katalog". Keiner der Locks beweist "diese Spalte IST die Material-Spalte". Die semantische Zuordnung hängt an einem einzigen LLM-Call plus Heuristiken — das ist die strukturelle Lücke (ARCH-005), und alle gefundenen False-GREEN-Pfade (BUG-001…009) sind letztlich Varianten davon: Evidenz wird ortsungebunden oder zirkulär.
+2. **Vision-Extraktion ist fundamental limitiert:** (a) keine Vollständigkeitsgarantie — was das Modell nicht liest, existiert nicht (ZDL-1, ehrlich ausgewiesen); (b) Dual-Extraction fängt nur nicht-korrelierte Fehler — zwei Läufe desselben Modells auf demselben Bild machen korrelierte Fehler (gleiche unscharfe Glyphe → gleiche Fehllesung); (c) Kosten skalieren linear mit Seiten × 2 (+ Counter-Checks).
+3. **PyMuPDF-Koordinaten-Verifikation als Lock 2 ist im Prinzip ausreichend für born-digital PDFs** — sie ist dort sogar die *Quelle* (RB-1), nicht nur die Prüfung, was die Selbstreferenz-Frage elegant auflöst. Für Scans existiert sie nicht (kein Text-Layer) — dort ist "Lock 2" faktisch leer und Dual-Extraction der einzige zweite Blick. Die ehrliche Antwort: **auf Scans gibt es derzeit kein belastbares GREEN, und das ist auch richtig so**, solange keine unabhängige OCR-Spur (z. B. lokales OCR als Gegenprobe) existiert.
+4. **Deterministisches Stammdaten-Matching als Lock 3 ist der richtige Ansatz** — aber er ist nur so gut wie der Katalog, und der ist zu 5 % befüllt (DATA-003). Der Engpass ist Daten-Operations, nicht Algorithmik.
+5. **Theoretisches GREEN-Maximum mit aktueller Architektur:** Born-digital PDFs (~14 von 19 POC-Kunden) × Kategorie-A-Felder mit Anker (Position, Menge, Maße, Werkstoff, Teilegruppe ≈ 60-70 % der befüllten Zellen) → realistisch **50-65 % GREEN auf Text-Pfad-Dokumenten** bei vollem Katalog; Scans 0 % (by design, solange Counter-Check aus). Gewichtet über den Dokumentenmix: **~40-55 % maximal**, was exakt dem "wenn 50 % verlässlich funktionieren, habe ich gewonnen"-Benchmark entspricht.
+6. **Hauptursachen für YELLOW/RED heute** (abgeleitet aus Code-Pfaden + Evaluations-Outputs): (1) Stammdaten-Lücken → Material/Hersteller/Teilegruppe fallen auf passthrough (größter Block, behebbar); (2) Excel-Quellen kategorisch ohne GREEN (ARCH-003); (3) leere optionale Felder (NEUTRAL/YELLOW, korrekt); (4) Vision-Pfad ohne Counter-Check → alles ≤ YELLOW; (5) Mapping-Konfidenz < 0.90 bei exotischen Headern. Vision-Lesefehler sind NICHT der Haupttreiber — die meisten Dokumente nehmen den Text-Pfad.
+
+### Teil 2: Alternative Ansätze
+
+#### ALT-01: Fine-tuned GPT-4.1-mini auf 50–100 Schaufler-BOMs
+**Expected GREEN rate improvement:** +3–8 % (nur Vision-Pfad-Dokumente)
+**Zero-False-Positive risk:** Medium
+**Why:** Fine-Tuning verbessert Extraktions-Konsistenz auf bekannten Layouts, aber (a) der Engpass liegt nicht bei der Extraktion, sondern bei Katalog & Verifikation; (b) ein feingetuntes Modell macht *selbstbewusstere* Fehler auf unbekannten Layouts — gefährlich für den Format-agnostischen Anspruch; (c) 50–100 BOMs sind für robustes Vision-Fine-Tuning knapp. Trainingsdaten: pro Seite Bild + Ground-Truth-Zeilen-JSON (aus korrigierten Reviews — fällt als Nebenprodukt des Feedback-Loops an).
+**GDPR compatible:** Yes (Azure OpenAI Fine-Tuning in EU-Regionen verfügbar; Datenverarbeitung im Tenant)
+**Effort:** XL
+**Recommendation:** Do not implement (jetzt)
+**Reason:** Falscher Engpass; erst Stammdaten + Recheck, dann mit echten Produktionsdaten neu bewerten.
+
+#### ALT-02: Strukturierte Extraktion statt Vision für born-digital PDFs
+**Expected GREEN rate improvement:** bereits realisiert (RB-1) — Restpotenzial +5–10 % durch bessere Korridor-/Header-Heuristiken
+**Zero-False-Positive risk:** None
+**Why:** Genau das ist die wichtigste bereits getroffene Architekturentscheidung des Systems (coordinate_table.py): Vision nur, wenn kein Text-Layer oder RB-1 ablehnt. Empfehlung im Detail: Vision **nie** für born-digital PDFs verwenden (heute passiert das beim RB-1-Decline, z. B. GF) — stattdessen dort eine zweite deterministische Strategie (Camelot-Lattice / Docling-TableFormer, siehe LIB-02/03) versuchen, bevor Vision rät.
+**GDPR compatible:** Yes (lokal)
+**Effort:** M
+**Recommendation:** Implement now (Restpotenzial)
+**Reason:** Deterministisch schlägt probabilistisch überall dort, wo die Daten exakt vorliegen.
+
+#### ALT-03: Fuzzy-Matching mit Konfidenzschwellen statt deterministisch-oder-nichts
+**Expected GREEN rate improvement:** +2–5 %
+**Zero-False-Positive risk:** High (wenn fuzzy → GREEN), Low (wenn fuzzy → besseres YELLOW)
+**Why:** Bereits teilweise eingebaut — und genau dort liegt ein Risiko (BUG-008). Die richtige Rolle von Fuzzy ist **Vorschlags-Generierung**: "1.2343 ESU (95 % ähnlich) — übernehmen?" als YELLOW mit Ein-Klick-Bestätigung. Das senkt Review-Zeit fast so stark wie GREEN, ohne den Vertrag anzufassen.
+**GDPR compatible:** Yes
+**Effort:** S (Umwidmung bestehender Treffer in Vorschläge)
+**Recommendation:** Implement now — aber als YELLOW-Vorschlag, Fuzzy-GREEN abschaffen.
+**Reason:** Gleiche Zeitersparnis, null Vertragsrisiko.
+
+#### ALT-04: Vektor-/Embedding-Suche über Stammdaten (363 Werkstoffe + 183 Hersteller)
+**Expected GREEN rate improvement:** +1–3 % direkt; größerer Effekt auf Review-Geschwindigkeit
+**Zero-False-Positive risk:** High als GREEN-Quelle, None als Ranking für Vorschläge
+**Why:** Embeddings fangen Tippfehler/Abkürzungen/Übersetzungen ("X38CrMoV5-1" ↔ "1.2343", "böhler W302" ↔ "1.2344"), die Levenshtein verfehlt. Aber Cosine-Similarity hat keine semantische Garantie — 1.2343 und 1.2344 sind sich *maximal ähnlich und fachlich verschieden*. Daher: nur als Kandidaten-Ranking für YELLOW-Vorschläge, nie als Match-Beweis. Bei 546 Einträgen reicht rapidfuzz praktisch aus; Embeddings lohnen erst bei deutlich größeren Katalogen.
+**GDPR compatible:** Yes (Azure-Embeddings oder lokal)
+**Effort:** M
+**Recommendation:** Implement after v1 (nach DATA-003; vorher überflüssig)
+**Reason:** rapidfuzz + voller Katalog deckt 90 % des Nutzens billiger ab.
+
+#### ALT-05: Feedback-Loop als Trainings-/Regelsignal
+**Expected GREEN rate improvement:** +10–20 % über 3 Monate (der größte nachhaltige Hebel)
+**Zero-False-Positive risk:** Low (wenn Korrekturen → deterministische Regeln statt → Modellvertrauen)
+**Why:** Jede YELLOW→bestätigt-Korrektur ist ein Beweisstück: "Alias X meint Kanon Y" (→ materials.json-Alias), "Spalte 'Vergütung' bei Kunde Z ist Material" (→ per-Kunde-Mapping-Registry). Als **deterministische Regel** übernommen, wird derselbe Fall beim nächsten BOM exakt-GREEN — ohne LLM-Vertrauen. Infrastruktur: Korrektur-Routing (ARCH-004), Kunden-Identität (DATA-001), Review-UI für Alias-Vorschläge (Settings-Seite existiert). Geschwindigkeit: Schaufler-Kundenstamm ist klein und wiederkehrend — nach 10–20 BOMs pro Kunde konvergiert das Mapping.
+**GDPR compatible:** Yes
+**Effort:** L
+**Recommendation:** Implement now
+**Reason:** Verwandelt menschliche Arbeit einmalig in dauerhafte deterministische GREEN-Quellen — die einzige Verbesserung, die mit der Zeit *von selbst* besser wird.
+
+#### ALT-06: Row-Identity-Redesign (Seite × y-Band als räumliches Ordinal)
+**Expected GREEN rate improvement:** 0 % direkt; eliminiert stillen Zeilenverlust (Korrektheit)
+**Zero-False-Positive risk:** None (reduziert Risiko)
+**Why:** Auf dem Text-Pfad bereits implementiert (RB-1, band_id "p{page}:b{idx}" — genau das geforderte Design). Offen ist der Vision-Pfad (BUG-011): dort Position-als-Identität mit Set-Kollaps. Vision-Zeilen tragen keine echten Koordinaten, aber ein Ordinal (Seite × Lesereihenfolge) plus Multiset-Zählung schließt die T-007-Lücke auch dort.
+**GDPR compatible:** Yes
+**Effort:** M (nur Vision-Pfad offen)
+**Recommendation:** Implement now (Vision-Teil)
+**Reason:** Komplettiert eine bereits zu 70 % gebaute, nachweislich richtige Lösung.
+
+#### ALT-07: Two-Pass-Extraktion (erst Struktur, dann Zellen)
+**Expected GREEN rate improvement:** +3–7 % auf dem Scan-Pfad
+**Zero-False-Positive risk:** Low
+**Why:** Phase A/B ist bereits ein grober Two-Pass. Die konsequente Version: Pass 1 ermittelt Tabellen-Bbox + Spaltengrenzen (Vision oder Layout-Modell), Pass 2 extrahiert **zugeschnittene Zellen-/Zeilenbilder** (höhere effektive Auflösung, weniger Kontext-Verwechslung, weniger Spalten-Bleeding). Teurer pro Seite, aber gezielter; kombinierbar mit Batch-Counter-Check (PERF-002).
+**GDPR compatible:** Yes
+**Effort:** L
+**Recommendation:** Implement after v1
+**Reason:** Lohnt erst, wenn der Scan-Anteil real signifikant ist (Produktionsdaten abwarten).
+
+#### ALT-08: Hybrid regelbasiert + KI mit automatischer Pfadwahl
+**Expected GREEN rate improvement:** bereits realisiert; Rest: +5–10 % durch dritte Strategie vor Vision
+**Zero-False-Positive risk:** None
+**Why:** Exakt die bestehende Routing-Logik (structure_normalizer: Text-Layer? → RB-1, sonst Vision; RB-1 lehnt selbst ab, wenn unzuverlässig — `_reconstruction_reliable`). Die Erkennung "welcher Ansatz" existiert und funktioniert. Fehlend: die mittlere Stufe (deterministische Tabellen-Extraktoren als zweiter Versuch, LIB-02/03) und Telemetrie, welcher Pfad wie oft mit welchem Ergebnis läuft.
+**GDPR compatible:** Yes
+**Effort:** M
+**Recommendation:** Implement now (dritte Strategie + Pfad-Telemetrie)
+**Reason:** Jedes Dokument, das vom Vision- auf einen deterministischen Pfad wandert, gewinnt GREEN-Fähigkeit und verliert Kosten.
+
+### Teil 3: Konkrete Roadmap
+
+**1. Höchster Impact bei null Vertragsrisiko:** **DATA-003 — Stammdaten-Import aus dem Template** (363 Werkstoffe, 181 Hersteller, 15 Teilegruppen). Eine Mittags-Aufgabe mit zweistelligem GREEN-Punkte-Effekt: exakte Katalog-Matches sind die sicherste GREEN-Quelle des Systems, und der Katalog ist heute zu 95 % leer. Direkt danach: BUG-005-Governance (sonst steht das neue GRÜN auf gelockerten Schwellen).
+
+**2. Realistische GREEN-Rate nach 3 Monaten Produktion mit aktivem Feedback-Loop:** **45–60 % der gescorten Zellen auf born-digital PDFs** (Annahmen: voller Katalog, Loop repariert per DATA-001, Alias-/Mapping-Lernen per ARCH-004, wiederkehrende Kunden). Scans bleiben nahe 0 % GREEN, bis Counter-Check-Batching (PERF-002) sie wirtschaftlich macht — dann 20–30 % auf Scans. Über den Mix: **~40–50 %** — der Mahler-Benchmark ist erreichbar, aber nur mit verlässlichem GRÜN (deshalb zuerst die BUG-00x-Schließung).
+
+**3. Theoretisches Maximum für Schaufler-BOMs:** ~**70–75 %** der gescorten Zellen (born-digital, voller Katalog, gelernte Kunden-Mappings, Yellow-Recheck aktiv). Der Rest ist strukturell YELLOW/RED: leere optionale Felder, Freitexte ohne Anker (Special Notes), echte Qualitätsmängel der Quelle, Scans schlechter Qualität. 100 % waren nie das Ziel — Human-in-the-Loop ist einkalkuliert.
+
+**4. Priorisierte Verbesserungen:**
+- **Quick Wins (< 1 Woche):** DATA-003 (Stammdaten-Import) · BUG-003/BUG-009/BUG-013 (Kleinst-Patches) · BUG-005 (Config-Governance + Banner) · SEC-001/SEC-002 (Key-Rotation, Default-Admin aus) · TEST-002/003 (Suite grün) · BUG-018 (CSV ehrlich machen)
+- **Mittelfristig (1–4 Wochen):** BUG-001/002/004/006/007/008 (Evidenz-Härtung als zusammenhängender Scoring-Sprint, mit Canary-Suite TEST-001 als Abnahme) · DATA-001 + ARCH-004 (Lern-Loop produktiv schalten) · ALT-03 (Fuzzy→Vorschlag) · OPS-001/002/003 (CI, Pinning, Health) · PERF-002 (Counter-Check-Batching) → danach Counter-Check reaktivieren
+- **Langfristig (1–3 Monate):** ARCH-005 (Mapping-Konsens) · ARCH-002 (Yellow-Recheck) · ALT-08 (dritte Extraktionsstrategie, LIB-02/03) · BUG-011/ALT-06 (Vision-Zeilen-Identität) · ARCH-003 (Excel-GREEN-Policy) · ARCH-001 (OpenDataLoader-Entscheid)
+
+**5. Daten, die ab Tag 1 der Produktion gesammelt werden sollten:**
+- Pro Zelle: finale Klassifikation + alle Evidenzen (existiert: Audit-Trail) **und** das Review-Outcome (bestätigt/korrigiert/ignoriert) — die Verknüpfung Audit×Outcome ist der Goldstandard-Datensatz für jede spätere Modell-/Schwellen-Optimierung.
+- Pro Dokument: Pfad (RB-1/Vision/Legacy), Decline-Gründe, Seiten, Dauer, Token (JOB_METRICS existiert — persistieren statt nur loggen).
+- Pro Korrektur: Typ (Wert/Mapping/Exclusion), Kunde, Feld — bereits im FeedbackStore, aber customer reparieren (DATA-001).
+- "GREEN-Audit-Stichprobe": wöchentlich N zufällige GREEN-Zellen manuell prüfen und die empirische False-Positive-Rate dokumentieren — das ist die Zahl, die Jürgen Mahler am Ende überzeugen oder brechen wird.
+
+### Teil 4: Wettbewerbsvergleich
+
+- **Kommerzielle BOM-/Dokumenten-Tools** (z. B. ERP-Importer, generische IDP-Suiten wie ABBYY/Rossum): stark in Volumen-Standardformaten (Rechnungen), schwach im Werkzeugbau-Long-Tail (CAD-Rahmen-PDFs, rotierte Matrizen, Werkstoff-Semantik). Keines bietet einen zellgenauen Zero-False-Positive-Vertrag mit Audit-Trail — deren Konfidenzen sind kalibrierte Wahrscheinlichkeiten, kein Beweisbegriff.
+- **Was SAP/Oracle bauen würden:** Document Information Extraction (SAP BTP DOX) + manuelles Mapping-Customizing pro Kunde — 6-stellige Integrationsprojekte, Schema-zentriert, ohne per-Zelle-Evidenz. Der "neue Kunde = 0 Code" Anspruch wäre dort ein Customizing-Projekt pro Kunde.
+- **Prozessias verteidigbarer Vorteil:** (1) das **Evidenz-Modell** — green_evidence/hard_vetoes/source_location pro Zelle ist ein Audit-Artefakt, das Großanbieter nicht nachrüsten können, ohne ihre Pipeline neu zu bauen; (2) die **RB-1-Idee** (deterministische Koordinaten-Rekonstruktion als Quelle UND Beweis); (3) der **Feedback→deterministische-Regel-Loop** (statt Modell-Retraining); (4) Schaufler-Domänenwissen (Werkstoffkunde, Teilegruppen-Semantik) in den Stammdaten. Diese vier konsequent ausgebaut sind schwer kopierbar; das LLM selbst ist es nicht.
+
+---
+
+### Teil 5: Open-Source-Bibliotheken & Tool-Recherche (2024–2026)
+
+*(Nur Python-Dependencies/CLI-Tools; keine lokalen GPU-Modelle als Pflicht — Docling/MinerU laufen optional CPU-only. Sterne/Status per Web-Recherche Juni 2026, vor Einsatz verifizieren.)*
+
+#### LIB-01: docling (IBM / Linux Foundation)
+**GitHub:** github.com/docling-project/docling (≈ 37k→61k Stars 2025→2026, sehr aktiv; seit 2026 Linux Foundation)
+**What it does:** Dokument-Konvertierung mit Layout-Modell + TableFormer-Tabellenstruktur-Erkennung (97.9 % Zell-Genauigkeit in Benchmarks), Output als strukturiertes JSON/Markdown mit Zell-Koordinaten.
+**Our use case:** Dritte Extraktionsstrategie zwischen RB-1-Decline und Vision (ALT-08): born-digital PDFs mit komplexen/rotierten Layouts (GF!), deren Header-Heuristik RB-1 ablehnt. Liefert Tabellen MIT Zellrelationen und Provenance (Seite+Bbox) — kompatibel mit dem bestehenden source_location-Vertrag.
+**Replaces:** Vision-Fallback für einen Teil der Decline-Fälle; perspektivisch pdf_parser_legacy.
+**Integration point:** Lock 2 / Ingestion (vor Vision)
+**Expected improvement:** GF-artige Layouts werden deterministisch statt per Vision verarbeitet → GREEN-fähig + billiger.
+**Risk to Zero-False-Positive:** Low — Output ist deterministisch nachprüfbar (Koordinaten gegen PyMuPDF-Wörter verifizieren, wie heute beim Vision-Pfad); das TableFormer-Modell selbst ist ML → Struktur immer gegen Text-Layer gegenchecken.
+**Install:** pip install docling
+**License:** MIT
+**Verdict:** Evaluate (gegen die 19 POC-PDFs + GF als Akzeptanztest)
+
+#### LIB-02: camelot-py
+**GitHub:** github.com/camelot-dev/camelot (~3k Stars, aktiv gepflegt; tabula-py wurde Jan 2025 archiviert!)
+**What it does:** PDF-Tabellenextraktion mit 5 Parsern — lattice (gezeichnete Linien!), stream, hybrid, network, optional ML; Output als DataFrame mit Zell-Bboxen.
+**Our use case:** Viele Werkzeugbau-BOMs haben **vollständig umrandete Tabellen** (CAD-Rahmen) — genau der Lattice-Sweet-Spot. Als zweite deterministische Meinung neben RB-1: stimmen Zeilen-/Spaltenzahl überein → starkes Struktur-Konfidenzsignal; weichen sie ab → YELLOW-Flag auf Strukturebene.
+**Replaces:** Ergänzt coordinate_table (RB-1 ist korridorbasiert und kennt keine gezeichneten Linien — Lattice nutzt exakt die Information, die RB-1 ignoriert).
+**Integration point:** Lock 2 / Ingestion (Parser-Ensemble)
+**Expected improvement:** Korrekte Spaltentrennung bei engen Spalten ohne Whitespace-Lücke; Struktur-Gegenprobe.
+**Risk to Zero-False-Positive:** None (deterministisch, zusätzliches Veto-Signal)
+**Install:** pip install "camelot-py[base]" (braucht ghostscript für lattice)
+**Verdict:** Use now (als Struktur-Gegenprobe), tabula-py NICHT (archiviert)
+
+#### LIB-03: pymupdf4llm
+**GitHub:** github.com/pymupdf/RAG (Teil des PyMuPDF-Ökosystems, aktiv)
+**What it does:** PyMuPDF-Wrapper, der Seiten als LLM-freundliches Markdown mit erkannten Tabellen ausgibt (0.12 s/Dokument, CPU-only, gleiche Dependency wie heute).
+**Our use case:** Besserer `document_text_layer` für die Anchor-Suche des Scorers (heute selbstgebautes ROW-Banding mit x-Tags, die wieder herausgefiltert werden müssen — Quelle der Phantom-Positions-Problematik B1) und als kompakter Prompt-Input statt eigener Layout-Serialisierung.
+**Replaces:** `_render_layout_aware_page_text` in pdf_parser.py (Eigenbau).
+**Integration point:** Lock 2 / Text-Layer-Erzeugung
+**Expected improvement:** Weniger Eigenbau-Wartung, robustere Tabellen-Markdown-Struktur; minimal — RB-1 bleibt die primäre Strukturquelle.
+**Risk to Zero-False-Positive:** None
+**Install:** pip install pymupdf4llm
+**License:** AGPL-3.0 wie PyMuPDF (bereits im Stack — Lizenzlage unverändert; für kommerzielle Distribution prüfen!)
+**Verdict:** Evaluate
+
+#### LIB-04: marker / MinerU (PDF→Markdown-Konverter mit ML-Layout)
+**GitHub:** github.com/datalab-to/marker (~20k+); github.com/opendatalab/MinerU (höchste Star-Zahl der Kategorie; April 2026 Lizenzwechsel AGPL→Apache-basiert)
+**What it does:** Vollpipeline PDF→Markdown/JSON inkl. Tabellen, Formeln, Cross-Page-Table-Merging (MinerU 2.5).
+**Our use case:** Begrenzt — beide sind auf Durchsatz/RAG optimiert, nicht auf zellgenaue Provenance. Cross-Page-Table-Merging (MinerU) ist für mehrseitige BOMs interessant.
+**Replaces:** nichts Kritisches.
+**Integration point:** Lock 2b-Ersatzkandidat (statt OpenDataLoader-Merge, ARCH-001)
+**Expected improvement:** Strukturspur für Dokumente, die RB-1 + Camelot + Docling alle verfehlen — kleiner Rest.
+**Risk to Zero-False-Positive:** Low (nur als Vorschlags-/Strukturquelle, nie als Beweis)
+**Install:** pip install marker-pdf / mineru
+**License:** marker GPL-3.0 (!), MinerU custom Apache-basiert — marker-Lizenz für SaaS prüfen.
+**Verdict:** Not suitable (marker, Lizenz) / Evaluate (MinerU, als Lock-2b-Kandidat)
+
+#### LIB-05: rapidfuzz
+**GitHub:** github.com/rapidfuzz/RapidFuzz (~3k Stars, sehr aktiv, MIT, C++-Kern)
+**What it does:** Schnelles Fuzzy-String-Matching (bereits im Stack!).
+**Our use case:** Bleibt das richtige Werkzeug — aber Scorer-Wahl korrigieren: `WRatio` (Partial-Matching-Anteile) für Alias-Kataloge durch `token_sort_ratio`/`ratio` ersetzen und `processor=utils.default_process` nutzen (BUG-008); für Hersteller-Matching (neu, DATA-003) `process.extract` mit score_cutoff 92 + Mindestlänge.
+**Replaces:** — (Konfigurationskorrektur)
+**Integration point:** Lock 3 / Stammdaten
+**Expected improvement:** Weniger falsche Fuzzy-Kanonisierung; Hersteller-Vorschläge.
+**Risk to Zero-False-Positive:** None (im Vorschlagsmodus, ALT-03)
+**Install:** bereits installiert
+**License:** MIT
+**Verdict:** Use now (Scorer-/Cutoff-Korrektur)
+
+#### LIB-06: pandera
+**GitHub:** github.com/unionai-oss/pandera (~3.5k Stars, aktiv; 0.29 Jan 2026)
+**What it does:** Leichtgewichtige DataFrame-/Tabellen-Schema-Validierung (12 Dependencies vs. 107 bei great-expectations).
+**Our use case:** Strukturvalidierung der extrahierten BOM-Tabelle VOR dem Mapping: "Positionsspalte monoton/eindeutig je Band", "Mengen-Spalte ≥ 60 % integer", "Spaltenzahl konstant je Section" — als deterministisches Frühwarnsignal "Extraktion strukturell kaputt" (heute verstreute Ad-hoc-Checks).
+**Replaces:** Teile von _post_validate_extraction / mapping_validator-Typchecks (Konsolidierung).
+**Integration point:** Pipeline (zwischen Ingestion und Mapping)
+**Expected improvement:** Strukturfehler werden als Dokument-Flag sichtbar statt als 100 Einzel-YELLOWs.
+**Risk to Zero-False-Positive:** None (nur zusätzliche Vetos)
+**Install:** pip install pandera
+**License:** MIT
+**Verdict:** Evaluate (great-expectations: Not suitable — zu schwer für diesen Stack)
+
+#### LIB-07: pdfplumber
+**GitHub:** github.com/jsvine/pdfplumber (~8k Stars, gepflegt)
+**What it does:** Koordinatenbasierte Text-/Tabellen-/Linien-Extraktion mit feiner Kontrolle (chars/words/lines/rects).
+**Our use case:** Die `rects`/`lines`-API liefert **gezeichnete Tabellenlinien**, die PyMuPDF-words nicht hergeben — daraus echte Spaltengrenzen statt Korridor-Schätzung für RB-1 (präzisere x-Grenzen = weniger column_boundary-Ambiguität = mehr GREEN-fähige Zellen).
+**Replaces:** Ergänzt coordinate_table (nur Linien-Detektion; Wort-Extraktion bleibt PyMuPDF).
+**Integration point:** Lock 2 / RB-1-Korridore
+**Expected improvement:** Bessere Spaltentrennung bei linierten Tabellen; weniger Boundary-YELLOWs.
+**Risk to Zero-False-Positive:** None
+**Install:** pip install pdfplumber
+**License:** MIT
+**Verdict:** Evaluate (alternativ: PyMuPDF page.get_drawings() — gleiche Info ohne neue Dependency; zuerst prüfen!)
+
+#### LIB-08: unstructured
+**GitHub:** github.com/Unstructured-IO/unstructured (~12k Stars)
+**What it does:** Generische Dokument-Partitionierung für RAG-Pipelines.
+**Our use case:** Benchmarks zeigen schwächere Tabellenqualität als Docling; Mehrwert gegenüber dem bestehenden Stack gering, schwere Dependency-Kette.
+**Risk to Zero-False-Positive:** —
+**Verdict:** Not suitable
+
+#### LIB-09: xlsxwriter vs. openpyxl (Excel-Output)
+**What it does / our use case:** xlsxwriter schreibt nur (kann keine bestehenden Templates füllen) — für den Schaufler-Anwendungsfall (vorhandene Vorlage exakt befüllen, Stile erhalten) ist **openpyxl die richtige und einzige Wahl**; der Exporter nutzt sie korrekt (Template laden, Referenz-Stile kopieren, Zellfarben).
+**Verdict:** Keep openpyxl (kein Wechsel); Ergänzung: `keep_vba`/Formel-Erhalt testen, falls Schaufler Vorlagen mit Formeln liefert.
+
+#### LIB-10: pdf-diff / diff-pdf (BOM-Versionsvergleich)
+**GitHub:** github.com/JoshData/pdf-diff (Python, pdftotext-basiert); vslavik/diff-pdf (visuell)
+**What it does:** Text-/visueller Diff zweier PDFs.
+**Our use case:** Nicht direkt — besser auf der **strukturierten Ebene** diffen: zwei verarbeitete BOMs als Zeilen-Sets (Band/Position-Schlüssel) vergleichen → "Rev. B vs. Rev. A: 3 Positionen neu, 1 entfernt, 2 Mengen geändert". Die gesamte Infrastruktur (ParsedBOM, Audit) existiert; der Diff ist reine Anwendungslogik.
+**Integration point:** Neues Feature auf Audit-Ebene (siehe IDEA-02)
+**Risk to Zero-False-Positive:** None
+**Verdict:** Eigenbau auf Audit-Ebene statt PDF-Diff-Library
+
+#### LIB-11: jellyfish / langdetect / pint
+**What it does:** Phonetik (jellyfish), Spracherkennung (langdetect), Einheiten (pint).
+**Our use case:** jellyfish (Phonetik) passt nicht zu Werkstoff-Codes (keine Aussprache-Semantik) — Not suitable. langdetect: nettes Metadatum für Statistik/Mapping-Prompt, kein Genauigkeitshebel — Nice to have. pint: überdimensioniert für mm/inch (eigene Konversion existiert und ist getestet) — Not suitable.
+**Verdict:** s. o.
+
+### Teil 6: Unkonventionelle Ansätze
+
+#### IDEA-01: BOM-Hierarchie-Visualisierung (Mermaid/Tree)
+**Concept:** Positionen mit Unterpositionen (1, 1.1, 1.2 / Detail-Number-Hierarchien) als einklappbarer Baum neben dem Grid; Ampelfarben aggregiert pro Ast.
+**Library/tool:** Frontend-seitig (ag-grid Tree Data — bereits im Stack!); kein Backend-Aufwand außer Hierarchie-Ableitung aus Detail Numbers.
+**Value for Schaufler:** Reviewer sieht Baugruppen-Kontext ("alle Schieber-Teile gelb → vermutlich Spalten-Mapping, nicht Einzelfehler") — beschleunigt Muster-Erkennung im Review.
+**Effort:** M
+**Verdict:** Nice to have
+
+#### IDEA-02: BOM-Versions-Diff (Rev. A → Rev. B)
+**Concept:** Kunde schickt aktualisierte Stückliste → System matcht Zeilen über Band-/Positions-Schlüssel + Customer Part Number und zeigt: neu / entfernt / geändert (mit Feld-Diff). Bereits geprüfte, unveränderte Zeilen übernehmen ihren Review-Status — nur das Delta braucht Review.
+**Library/tool:** Eigenbau auf ParsedBOM/Audit-Ebene (LIB-10); difflib für Sequence-Alignment der Positionsfolgen.
+**Value for Schaufler:** Revisionsschleifen sind im Werkzeugbau der Normalfall; "nur das Delta prüfen" ist möglicherweise mehr Zeitersparnis als jede GREEN-Raten-Steigerung. Starkes Demo-Feature für Mahler.
+**Effort:** L
+**Verdict:** Worth exploring (nach v1-Härtung das beste neue Feature)
+
+#### IDEA-03: Material↔Hersteller↔Teilegruppe als Konsistenz-Graph
+**Concept:** Aus den Template-Stammdaten + bestätigten Reviews ein Kookkurrenz-Wissen aufbauen ("Teilegruppe E kommt nie mit Werkstoff AlSi9Cu3", "Hersteller Meusburger ⇒ Normalie ⇒ Teilegruppe N") und als Cross-Validator-Regeln nutzen.
+**Library/tool:** Kein Graph-Framework nötig — dict-basierte Kookkurrenz-Tabellen im cross_validator; optional networkx.
+**Value for Schaufler:** Zusätzliche deterministische Plausibilitäts-Vetos (Richtung "mehr Sicherheit", nicht "mehr GREEN") — passt exakt zur Vertragsphilosophie.
+**Effort:** M
+**Verdict:** Worth exploring
+
+#### IDEA-04: Template-Fingerprinting ("dieses BOM-Format kennen wir")
+**Concept:** Layout-Fingerprint pro Dokument (Header-Token-Sequenz + Spalten-x-Profil, normalisiert) → Wiedererkennung "Format = Magna-Stückliste v2" → gespeichertes, menschlich bestätigtes Spalten-Mapping wird OHNE LLM-Call angewendet; nur unbekannte Fingerprints gehen durchs LLM-Mapping.
+**Library/tool:** Eigenbau (~100 Zeilen: SHA über normalisierte Header-Tokens + gerundete Spalten-Zentren); Speicherung in data/learned_mappings/ (dafür existiert das Verzeichnis bereits).
+**Value for Schaufler:** Wiederkehrende Kundenformate (der Normalfall!) bekommen deterministisches Mapping = die Hauptquelle systematischer Wrong-GREEN-Risiken (ARCH-005) verschwindet für Bestandskunden komplett; zudem schneller und billiger.
+**Effort:** M
+**Verdict:** Worth exploring — höchster Wert der vier Ideen, direkte Synergie mit ALT-05/ARCH-004
+
+---
+
+## ZUSAMMENFASSUNG
+
+**Tickets gesamt: 52** (21 BUG, 6 SEC, 8 OPS, 5 ARCH, 2 PERF, 4 DATA, 3 FE, 3 TEST)
+- **Critical: 9** — BUG-001, BUG-002, BUG-003, BUG-004, BUG-005, BUG-006, SEC-001, SEC-002, DATA-003
+- **High: 14** — BUG-007, BUG-008, BUG-009, BUG-010, BUG-011, BUG-013, BUG-018, OPS-001, OPS-003, ARCH-001, ARCH-002, ARCH-005, DATA-001, TEST-001
+- **Medium: 25** — BUG-012, BUG-014, BUG-015, BUG-016, BUG-017, BUG-019, BUG-020, BUG-021, SEC-003, SEC-004, SEC-005, SEC-006, OPS-002, OPS-004, OPS-005, OPS-006, ARCH-003, ARCH-004, PERF-001, PERF-002, DATA-002, DATA-004, FE-001, TEST-002, TEST-003
+- **Low: 4** — OPS-007, OPS-008, FE-002, FE-003
+
+**Anforderungen: 40 geprüft** — 19 vollständig (47.5 %), 14 teilweise (35 %), 6 nicht implementiert (15 %), 1 unklar (2.5 %).
+
+**Zero-False-Positive-Risiken gefunden: 12** (BUG-001, 002, 003, 004, 005, 006, 007, 008, 009, 010, DATA-004, ARCH-005 — davon 6 Critical).
+
+**Testlauf:** 286 Tests, 283 lauffähig geprüft, **3 Failures** (GF-Legacy-Parser, 2× Auth-Leakage in test_job_source_route).
+
+**Top 5 kritischste Lücken für die Jürgen-Mahler-Demo:**
+1. **DATA-003 — Stammdaten zu 95 % leer** (18/363 Werkstoffe, 0 Hersteller, 12/15 Teilegruppen): Die GREEN-Rate ist künstlich niedrig, und genau die Felder, die Mahler zuerst prüft (Werkstoff!), bleiben gelb. Vollständige Daten liegen ungenutzt im eigenen Template.
+2. **SEC-002 + SEC-001 — admin/admin auf der öffentlichen Produktions-URL + Azure-Key in der Git-Historie:** Ein einziger neugieriger Besucher vor der Demo genügt, um Vertrauen irreparabel zu beschädigen — und das Thema ist "hoch aufgehangen".
+3. **BUG-005 — die Produktiv-Config hat die Schutzschwellen gelockert und den Counter-Check deaktiviert:** Wenn Mahler fragt "wie stellt ihr 100 % sicher?", beschreibt die Antwort derzeit ein System, das so nicht konfiguriert ist.
+4. **BUG-001/003/004/006 — zirkuläre bzw. ortsungebundene GREEN-Evidenz:** Die konkreten Pfade, über die ein einziges falsches GRÜN in der Demo entstehen kann — exakt der Fehler, an dem die vier Vorgänger gescheitert sind. Vor jeder Demo mit echten Kundendaten schließen.
+5. **DATA-001 + ARCH-004 — der Lern-Loop ist produktiv tot (customer="")**: "Das System lernt aus euren Korrekturen" ist ein Kernversprechen des Angebots und derzeit nicht erlebbar.
+
+**Stärken, die es zu erhalten gilt (ausdrücklich):** das zentrale Green-Gate als Single Source of Truth, die RB-1-Koordinaten-Rekonstruktion mit Band-Identität, der Set-basierte Export-Guard (ZDL-4), die ehrliche Completeness-Auskunft (ZDL-1), der Audit-Trail pro Zelle mit green_evidence/hard_vetoes, Retry-After-respektierendes Backoff und die saubere MANUAL_CONFIRMED-Trennung. Die Architektur ist richtig gedacht — die Lücken liegen in Evidenz-Härtung, Daten-Befüllung und Betriebs-Disziplin.

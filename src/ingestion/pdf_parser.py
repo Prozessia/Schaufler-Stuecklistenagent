@@ -14,11 +14,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import difflib
 import json
 import logging
+import os
 import re
 import unicodedata
 from pathlib import Path
+from typing import Callable
 
 import fitz  # PyMuPDF — used only for page rendering, not table extraction
 
@@ -64,7 +67,11 @@ WICHTIG:
 # ===================================================================
 
 
-async def parse_pdf(filepath: Path | str, llm: BaseLLM) -> ParsedBOM:
+async def parse_pdf(
+    filepath: Path | str,
+    llm: BaseLLM,
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> ParsedBOM:
     """Vision-first PDF parsing pipeline.
 
     1. Render every page to a 300 DPI PNG (base64).
@@ -72,6 +79,10 @@ async def parse_pdf(filepath: Path | str, llm: BaseLLM) -> ParsedBOM:
     3. Phase B — extract data rows from every page.
     4. Post-validate extracted values.
     5. Return unified ParsedBOM.
+
+    progress_callback(done_pages, total_pages) is called after each page
+    is processed.  Exceptions in the callback are swallowed so they can
+    never abort the pipeline.
     """
     filepath = Path(filepath)
     images = _render_pdf_pages(filepath, dpi=250)
@@ -101,9 +112,15 @@ async def parse_pdf(filepath: Path | str, llm: BaseLLM) -> ParsedBOM:
         detected_columns,
     )
 
-    # Phase B — dual extract data rows from all pages
-    all_rows, dual_mismatches = await _extract_all_pages_via_vision(
-        images, detected_columns, llm
+    # Phase B — dual extract data rows from all pages.
+    # detected_columns may be extended by BUG-017 per-page re-detect.
+    (
+        all_rows,
+        dual_mismatches,
+        dual_row_count_delta,
+        detected_columns,
+    ) = await _extract_all_pages_via_vision(
+        images, detected_columns, llm, progress_callback=progress_callback
     )
 
     # B2: capture the PDF-side position set from the RAW vision rows, BEFORE
@@ -112,6 +129,10 @@ async def parse_pdf(filepath: Path | str, llm: BaseLLM) -> ParsedBOM:
     # Hard limit: positions the Vision model never read are also absent here —
     # there is no ground truth to recover those without a text layer.
     raw_pdf_positions = _collect_position_values(all_rows, detected_columns)
+    # B2/BUG-011: also capture per-position occurrence counts from the same RAW
+    # rows (before dedup). Used by the reconciler to detect under-extraction when
+    # multiple rows share the same position number.
+    raw_pdf_position_counts = _collect_position_counts(all_rows, detected_columns)
 
     # Deduplicate rows that appear on multiple pages (header repeats etc.)
     all_rows = _deduplicate_rows(all_rows, detected_columns)
@@ -215,6 +236,7 @@ async def parse_pdf(filepath: Path | str, llm: BaseLLM) -> ParsedBOM:
         rows=all_rows,
         expected_position_count=_count_distinct_positions(all_rows, detected_columns),
         raw_pdf_positions=raw_pdf_positions,
+        raw_pdf_position_counts=raw_pdf_position_counts,
         metadata={
             "extraction_method": "gpt4o_vision",
             "dual_extraction": True,
@@ -231,6 +253,7 @@ async def parse_pdf(filepath: Path | str, llm: BaseLLM) -> ParsedBOM:
             "columns_detected": len(detected_columns),
             "validation_flags_total": validation_flag_count,
             "dual_mismatch_count": dual_mismatch_count,
+            "dual_row_count_delta": dual_row_count_delta,
             "coord_mismatch_count": coord_mismatch_count,
             "coord_confirmed_count": coord_confirmed_count,
             "coord_rowcorr_count": coord_rowcorr_count,
@@ -746,49 +769,193 @@ Antwortformat (NUR JSON):
 """
 
 
+def _is_page_anomalous(
+    rows_a: list[dict[str, str | None]],
+    columns: list[str],
+) -> bool:
+    """Return True when rows_a looks like a wrong-schema extraction (BUG-017).
+
+    A page is anomalous when it produced no rows at all, or when more than 50%
+    of its rows have more than 50% of the detected columns as None — which is the
+    hallmark of using the wrong schema for that page's table structure.
+    """
+    if not rows_a:
+        return True
+    n_cols = len(columns)
+    if n_cols == 0:
+        return False
+    empty_row_count = sum(
+        1
+        for row in rows_a
+        if sum(1 for c in columns if row.get(c) is None) > n_cols / 2
+    )
+    return (empty_row_count / len(rows_a)) > 0.5
+
+
+def _jaccard_similarity(set_a: set[str], set_b: set[str]) -> float:
+    """Jaccard similarity between two sets of normalised column names."""
+    union = set_a | set_b
+    if not union:
+        return 1.0
+    return len(set_a & set_b) / len(union)
+
+
+async def _process_single_page_with_redetect(
+    idx: int,
+    img: str,
+    active_columns: list[str],
+    llm: BaseLLM,
+) -> tuple[
+    list[dict[str, str | None]],
+    list[dict[str, str | None]],
+    list[str] | None,
+]:
+    """Extract one page (dual A+B) with optional BUG-017 re-detect.
+
+    Returns (rows_a, rows_b, new_columns_or_None).
+    new_columns_or_None is set only when a sufficiently different schema was
+    detected for this page (Jaccard < 0.5); the caller merges it into
+    active_columns after the wave completes.
+    """
+    page_num = idx + 1
+    rows_a, rows_b = await asyncio.gather(
+        _extract_single_page(img, active_columns, llm, page_num, variant="A"),
+        _extract_single_page(img, active_columns, llm, page_num, variant="B"),
+    )
+
+    # BUG-017: anomaly check for pages >= 2 (page 1 always used for schema).
+    new_cols_out: list[str] | None = None
+    if page_num >= 2 and _is_page_anomalous(rows_a, active_columns):
+        new_cols = await _detect_columns_via_vision(img, llm)
+        if new_cols and len(new_cols) >= _MIN_COLS:
+            existing_norm = {_normalize_alnum(c) for c in active_columns}
+            new_norm = {_normalize_alnum(c) for c in new_cols}
+            similarity = _jaccard_similarity(existing_norm, new_norm)
+            if similarity < 0.5:
+                logger.info(
+                    "BUG-017: page %d schema anomaly detected (Jaccard=%.2f), "
+                    "re-extracting with new columns: %s",
+                    page_num,
+                    similarity,
+                    new_cols,
+                )
+                rows_a, rows_b = await asyncio.gather(
+                    _extract_single_page(img, new_cols, llm, page_num, variant="A"),
+                    _extract_single_page(img, new_cols, llm, page_num, variant="B"),
+                )
+                new_cols_out = new_cols
+
+    return rows_a, rows_b, new_cols_out
+
+
 async def _extract_all_pages_via_vision(
     images: list[str],
     detected_columns: list[str],
     llm: BaseLLM,
-) -> tuple[list[dict[str, str | None]], dict[int, list[str]]]:
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> tuple[list[dict[str, str | None]], dict[int, list[str]], int, list[str]]:
     """Phase B: Dual Extraction — extract rows TWICE with different prompts.
 
-    Both extractions run in parallel. Results are compared cell-by-cell.
-    Mismatches are flagged; the value from Extraction A is kept as primary.
+    Both extractions run sequentially per page. Results are compared cell-by-cell
+    using sequence alignment (BUG-016). Mismatches are flagged; the value from
+    Extraction A is kept as primary.
 
-    Returns (rows, dual_mismatch_flags).
+    BUG-017: for pages >= 2 an anomaly check is performed on rows_a. If the page
+    looks empty/wrong-schema (>50% of rows have >50% Nones), Phase A is re-run
+    for that page. When the new column set is sufficiently different (Jaccard < 0.5)
+    and has >= _MIN_COLS columns, the page is re-extracted with the new schema and
+    any new column names are appended to detected_columns.  Maximum one re-detect
+    per page, no retry loop.
 
-    Always processes page-by-page — there is no multi-page batch path. A single
-    batch call shares one max_tokens budget across all pages, so a dense BOM
-    truncates the JSON mid-stream and loses whole pages. Per-page extraction
-    isolates the token budget per page and bounds any truncation to one page,
-    where partial recovery (_try_recover_partial_json) salvages the rest.
+    Returns (rows, dual_mismatch_flags, row_count_delta, final_detected_columns).
+
+    PERF-001: limited page concurrency via VISION_PAGE_CONCURRENCY env var
+    (default "1" → original sequential behaviour).  Pages are processed in
+    waves of size N; BUG-017 anomaly handling happens inside each task and new
+    columns from re-detection are merged sequentially after every wave, so the
+    BUG-017 semantics are preserved.
+
+    Always processes page-by-page (or wave-by-wave) — a single batch call
+    shares one max_tokens budget across all pages, which truncates dense BOMs.
+    Per-page extraction isolates the token budget per page.
     """
-    # Parallel dual extraction with semaphore
-    semaphore = asyncio.Semaphore(_MAX_CONCURRENT_PAGES)
+    # Read concurrency at call time (not module load) so tests can monkeypatch env.
+    try:
+        concurrency = int(os.environ.get("VISION_PAGE_CONCURRENCY", "1"))
+        if concurrency < 1:
+            concurrency = 1
+    except (ValueError, TypeError):
+        concurrency = 1
 
-    async def _dual_extract_page(
-        img: str, page_num: int
-    ) -> tuple[list[dict[str, str | None]], list[dict[str, str | None]]]:
-        async with semaphore:
-            # Both variants run in parallel for the same page
-            result_a, result_b = await asyncio.gather(
-                _extract_single_page(img, detected_columns, llm, page_num, variant="A"),
-                _extract_single_page(img, detected_columns, llm, page_num, variant="B"),
-            )
-            return result_a, result_b
-
-    tasks = [_dual_extract_page(img, idx + 1) for idx, img in enumerate(images)]
-    page_results = await asyncio.gather(*tasks)
+    # Work on a mutable copy so callers can see the extended column list.
+    active_columns: list[str] = list(detected_columns)
+    total_pages = len(images)
 
     all_rows_a: list[dict[str, str | None]] = []
     all_rows_b: list[dict[str, str | None]] = []
-    for rows_a, rows_b in page_results:
-        all_rows_a.extend(rows_a)
-        all_rows_b.extend(rows_b)
+    done_pages = 0
 
-    mismatches = _compare_dual_extractions(all_rows_a, all_rows_b, detected_columns)
-    return all_rows_a, mismatches
+    def _fire_progress() -> None:
+        nonlocal done_pages
+        done_pages += 1
+        if progress_callback is not None:
+            try:
+                progress_callback(done_pages, total_pages)
+            except Exception:  # noqa: BLE001
+                pass
+
+    if concurrency <= 1:
+        # Original sequential path — identical to pre-PERF-001 behaviour.
+        for idx, img in enumerate(images):
+            rows_a, rows_b, new_cols = await _process_single_page_with_redetect(
+                idx, img, active_columns, llm
+            )
+            if new_cols is not None:
+                existing_set = set(active_columns)
+                for col in new_cols:
+                    if col not in existing_set:
+                        active_columns.append(col)
+                        existing_set.add(col)
+            all_rows_a.extend(rows_a)
+            all_rows_b.extend(rows_b)
+            _fire_progress()
+    else:
+        # Wave-based parallel path: process up to `concurrency` pages at once.
+        # After each wave, merge new columns (from BUG-017 re-detection) before
+        # starting the next wave so subsequent pages see the updated schema.
+        for wave_start in range(0, total_pages, concurrency):
+            wave_indices = range(wave_start, min(wave_start + concurrency, total_pages))
+            wave_tasks = [
+                _process_single_page_with_redetect(
+                    idx, images[idx], active_columns, llm
+                )
+                for idx in wave_indices
+            ]
+            wave_results = await asyncio.gather(*wave_tasks)
+
+            # Merge results in page order, then update active_columns.
+            existing_set = set(active_columns)
+            for rows_a, rows_b, new_cols in wave_results:
+                all_rows_a.extend(rows_a)
+                all_rows_b.extend(rows_b)
+                if new_cols is not None:
+                    for col in new_cols:
+                        if col not in existing_set:
+                            active_columns.append(col)
+                            existing_set.add(col)
+                _fire_progress()
+
+    mismatches, row_count_delta = _compare_dual_extractions(
+        all_rows_a, all_rows_b, active_columns
+    )
+    if row_count_delta != 0:
+        logger.warning(
+            "Dual Extraction: row count delta=%d (A=%d rows, B=%d rows)",
+            row_count_delta,
+            len(all_rows_a),
+            len(all_rows_b),
+        )
+    return all_rows_a, mismatches, row_count_delta, active_columns
 
 
 async def _extract_single_page(
@@ -1177,6 +1344,31 @@ def _values_equivalent(
     return False
 
 
+def _collect_position_counts(
+    rows: list[dict[str, str | None]],
+    columns: list[str],
+) -> dict[str, int]:
+    """Count every occurrence of each normalized position value in the RAW Vision rows.
+
+    B2/BUG-011: unlike _collect_position_values this function does NOT deduplicate —
+    it counts each row individually so duplicate position numbers (e.g. two rows
+    both carrying position "10") are each counted. The reconciler uses this to
+    detect under-extraction (pdf_count > extracted_count for the same position).
+
+    Returns {} when no position column can be inferred.
+    """
+    anchor = _infer_anchor_column(columns)
+    if not anchor:
+        return {}
+    counts: dict[str, int] = {}
+    for row in rows:
+        value = row.get(anchor)
+        if value and str(value).strip():
+            normalized = " ".join(str(value).strip().upper().split())
+            counts[normalized] = counts.get(normalized, 0) + 1
+    return counts
+
+
 def _collect_position_values(
     rows: list[dict[str, str | None]],
     columns: list[str],
@@ -1254,43 +1446,30 @@ def _infer_anchor_column(columns: list[str]) -> str | None:
     return None
 
 
-def _pick_anchor_row_index(
-    *,
-    anchor_indices: list[int],
-    preferred_idx: int,
-    used_indices: set[int],
-) -> int | None:
-    available = [i for i in anchor_indices if i not in used_indices]
-    if not available:
-        return None
-
-    closest_idx: int | None = None
-    closest_dist: int | None = None
-    for candidate_idx in available:
-        dist = abs(candidate_idx - preferred_idx)
-        if closest_dist is None or dist < closest_dist:
-            closest_idx = candidate_idx
-            closest_dist = dist
-    return closest_idx
-
-
 def _compare_dual_extractions(
     rows_a: list[dict[str, str | None]],
     rows_b: list[dict[str, str | None]],
     columns: list[str],
-) -> dict[int, list[str]]:
-    """Compare two extractions cell-by-cell. Return mismatch flags.
+) -> tuple[dict[int, list[str]], int]:
+    """Compare two extractions using sequence alignment. Return (mismatch_flags, delta).
 
-    Rows are matched by index. If extraction B has fewer/more rows,
-    extra rows from A are flagged entirely.
+    BUG-016: the old index-/anchor-based pairing drifted when extraction B dropped a
+    middle row — all subsequent rows were matched to wrong partners, producing false
+    mismatches on correct rows and missing the actual drop. Replaced with
+    difflib.SequenceMatcher on per-row key sequences so aligned pairs are always
+    correct and unmatched rows from A are reliably flagged as MISSING_ROW.
 
-    Returns dict of {row_index: [mismatch_flag_strings]}.
-    Flag format: "COLUMN: dual_mismatch (A='val_a', B='val_b')"
+    Row key: anchor column value (alnum-normalised) when available, otherwise the
+    concatenation of the first two non-empty cell values — providing a content
+    fingerprint that survives minor OCR variation between runs A and B.
+
+    Returns:
+        mismatches  — {row_index_in_A: [flag_strings]}
+        row_count_delta — len(rows_a) - len(rows_b); != 0 warns about row count drift
     """
     mismatches: dict[int, list[str]] = {}
 
-    # Identify critical columns for extra-strict comparison
-    # These are the fields where errors are most damaging
+    # Identify critical columns for extra-strict comparison.
     qty_keywords = {
         "stk",
         "stück",
@@ -1321,83 +1500,77 @@ def _compare_dual_extractions(
         for col in columns
         if any(kw in col.lower() for kw in qty_keywords | dim_keywords)
     }
-
     anchor_col = _infer_anchor_column(columns)
     if anchor_col:
         critical_columns.add(anchor_col)
-    anchor_index_b: dict[str, list[int]] = {}
-    if anchor_col:
-        for idx_b, row_b in enumerate(rows_b):
-            anchor_val = _normalize_alnum(row_b.get(anchor_col))
-            if anchor_val:
-                anchor_index_b.setdefault(anchor_val, []).append(idx_b)
 
-    used_rows_b: set[int] = set()
-
-    for idx, row_a in enumerate(rows_a):
-        flags: list[str] = []
-
-        matched_b_index: int | None = None
-
+    def _row_key(row: dict[str, str | None]) -> str:
+        """Stable per-row comparison key for SequenceMatcher."""
         if anchor_col:
-            anchor_a = _normalize_alnum(row_a.get(anchor_col))
-            if anchor_a and anchor_a in anchor_index_b:
-                matched_b_index = _pick_anchor_row_index(
-                    anchor_indices=anchor_index_b[anchor_a],
-                    preferred_idx=idx,
-                    used_indices=used_rows_b,
-                )
+            anchor_val = _normalize_alnum(row.get(anchor_col))
+            if anchor_val:
+                return anchor_val
+        # Fallback: first two non-empty normalized cell values concatenated.
+        parts: list[str] = []
+        for col in columns:
+            v = _normalize_alnum(row.get(col))
+            if v:
+                parts.append(v)
+            if len(parts) >= 2:
+                break
+        return "".join(parts)
 
-        if matched_b_index is None and idx < len(rows_b) and idx not in used_rows_b:
-            matched_b_index = idx
+    keys_a = [_row_key(r) for r in rows_a]
+    keys_b = [_row_key(r) for r in rows_b]
 
-        if matched_b_index is None:
-            # Fall back to closest still-unmatched row in B.
-            available_b = [i for i in range(len(rows_b)) if i not in used_rows_b]
-            if available_b:
-                closest_idx: int | None = None
-                closest_dist: int | None = None
-                for candidate_idx in available_b:
-                    dist = abs(candidate_idx - idx)
-                    if closest_dist is None or dist < closest_dist:
-                        closest_idx = candidate_idx
-                        closest_dist = dist
-                matched_b_index = closest_idx
+    # Use SequenceMatcher to find aligned blocks of matching keys.
+    # autojunk=False: never treat high-frequency keys as junk — position numbers
+    # like "1" appear in every BOM but are the most important anchor.
+    matcher = difflib.SequenceMatcher(None, keys_a, keys_b, autojunk=False)
 
-        if matched_b_index is None:
-            # No matching row in B: keep strict flags only for critical columns.
-            # For non-critical text columns this case is often a byproduct of row
-            # count drift between extraction variants, not a reliable contradiction.
-            for col in columns:
-                val_a = row_a.get(col)
-                if val_a is not None and col in critical_columns:
-                    flags.append(f"{col}: dual_mismatch (A='{val_a}', B=MISSING_ROW)")
-        else:
-            used_rows_b.add(matched_b_index)
-            row_b = rows_b[matched_b_index]
+    matched_a: set[int] = set()
+    matched_b: set[int] = set()
+
+    for block in matcher.get_matching_blocks():
+        alo, blo, size = block.a, block.b, block.size
+        for offset in range(size):
+            idx_a = alo + offset
+            idx_b = blo + offset
+            row_a = rows_a[idx_a]
+            row_b = rows_b[idx_b]
+            matched_a.add(idx_a)
+            matched_b.add(idx_b)
+
+            flags: list[str] = []
             for col in columns:
                 val_a = row_a.get(col)
                 val_b = row_b.get(col)
                 norm_a = _normalize_for_comparison(val_a)
                 norm_b = _normalize_for_comparison(val_b)
-
                 values_equal = _values_equivalent(
-                    val_a,
-                    val_b,
-                    is_critical_column=(col in critical_columns),
+                    val_a, val_b, is_critical_column=(col in critical_columns)
                 )
-
                 if not values_equal:
-                    # Both non-empty but different → mismatch
                     if norm_a and norm_b:
                         flags.append(f"{col}: dual_mismatch (A='{val_a}', B='{val_b}')")
-                    # One empty, one not → flag for critical columns
                     elif col in critical_columns:
                         flags.append(f"{col}: dual_mismatch (A='{val_a}', B='{val_b}')")
+            if flags:
+                mismatches[idx_a] = flags
 
+    # Rows from A that have no aligned partner in B → flag all critical columns.
+    for idx_a, row_a in enumerate(rows_a):
+        if idx_a in matched_a:
+            continue
+        flags = []
+        for col in columns:
+            val_a = row_a.get(col)
+            if val_a is not None and col in critical_columns:
+                flags.append(f"{col}: dual_mismatch (A='{val_a}', B=MISSING_ROW)")
         if flags:
-            mismatches[idx] = flags
+            mismatches[idx_a] = flags
 
+    row_count_delta = len(rows_a) - len(rows_b)
     total = sum(len(f) for f in mismatches.values())
     if total:
         logger.warning(
@@ -1408,7 +1581,7 @@ def _compare_dual_extractions(
     else:
         logger.info("Dual Extraction: all values match — high confidence")
 
-    return mismatches
+    return mismatches, row_count_delta
 
 
 # ===================================================================
@@ -1609,7 +1782,7 @@ def _post_validate_extraction(
     """Validate each extracted cell against plausibility rules.
 
     Returns the (cleaned) rows and a dict of {row_index: [flag_strings]}.
-    Flagged cells will be capped at RED (< 0.50) in the ensemble scorer.
+    Flagged cells are capped at YELLOW in the ensemble scorer (PLAUS soft veto).
     """
     column_type_mapping = _infer_column_types(detected_columns)
     row_flags: dict[int, list[str]] = {}
@@ -1622,7 +1795,7 @@ def _post_validate_extraction(
             col_type = column_type_mapping.get(col_name)
             if col_type and col_type in _VALIDATION_RULES:
                 cell_flags = _validate_cell(value, _VALIDATION_RULES[col_type])
-                flags.extend(f"{col_name}: {f}" for f in cell_flags)
+                flags.extend(f"PLAUS:{col_name}: {f}" for f in cell_flags)
 
         if flags:
             row_flags[idx] = flags
@@ -2272,6 +2445,11 @@ def _find_best_token_match(
     best_similar_token: str | None = None
     best_similar_iou = -1.0
 
+    # BUG-010: numeric tokens compare on their canonical decimal form —
+    # _normalize_token strips punctuation and collapses "4.5"/"45" and
+    # "1-2"/"12" into the same string, producing false COORDOK confirmations.
+    token_numeric = _normalize_numeric_token(token)
+
     for _x0, y0, _x1, y1, word_text in words:
         norm_word = _normalize_token(word_text)
         if not norm_word:
@@ -2282,6 +2460,32 @@ def _find_best_token_match(
             (_x0 + _x1) / 2,
             expected_x_range,
         )
+
+        word_numeric = _normalize_numeric_token(word_text)
+        if token_numeric is not None or word_numeric is not None:
+            # Numeric-aware path: an exact hit requires the SAME canonical
+            # decimal form ("4,5" == "4.5"; "4.5" != "45"; "12" != "1-2").
+            # A shape mismatch (one side numeric, one not) is never exact.
+            is_exact = (
+                token_numeric is not None
+                and word_numeric is not None
+                and token_numeric == word_numeric
+            )
+            if is_exact:
+                if in_x:
+                    if y_iou > best_exact_iou:
+                        best_exact_token = word_text
+                        best_exact_iou = y_iou
+                        best_exact_y0 = y0
+                        best_exact_y1 = y1
+                elif y_iou > best_exact_out_x_iou:
+                    best_exact_out_x_token = word_text
+                    best_exact_out_x_iou = y_iou
+            elif _is_close_numeric_miss(norm_token, norm_word) and in_x:
+                if y_iou > best_similar_iou:
+                    best_similar_token = word_text
+                    best_similar_iou = y_iou
+            continue
 
         if norm_word in _token_variants(norm_token):
             if in_x:
@@ -2362,6 +2566,27 @@ def _normalize_token(value: str) -> str:
     # Normalize exactly as requested: keep only letters and digits.
     token = re.sub(r"[^a-z0-9]", "", token)
     return token
+
+
+_NUMERIC_TOKEN_RE = re.compile(r"^[-+]?\d+(?:[.,]\d+)?$")
+
+
+def _normalize_numeric_token(value: str) -> str | None:
+    """Normalize a numeric token for decimal-separator-agnostic comparison.
+
+    Returns the canonical form (comma replaced by dot) if the raw token
+    (after strip) matches a plain numeric pattern, otherwise None.
+
+    Examples:
+      "4,5"  → "4.5"
+      "45"   → "45"
+      "4.5"  → "4.5"
+      "4mm"  → None   (mixed — not purely numeric)
+    """
+    raw = unicodedata.normalize("NFKC", value.strip())
+    if not _NUMERIC_TOKEN_RE.match(raw):
+        return None
+    return raw.replace(",", ".")
 
 
 def _detail_number_row_match(vision_value: str, row_text: str) -> bool:

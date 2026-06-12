@@ -20,6 +20,7 @@ from src.mapping.llm_column_mapper import MappingResult
 from src.mapping.schema_registry import TargetSchema, load_schema
 from src.transform.master_data_matcher import (
     get_coating_catalog,
+    get_manufacturer_catalog,
     get_material_catalog,
     get_nitriding_catalog,
     get_parts_group_catalog,
@@ -108,6 +109,7 @@ def transform_bom(
     nit_catalog = get_nitriding_catalog()
     coat_catalog = get_coating_catalog()
     pg_catalog = get_parts_group_catalog()
+    man_catalog = get_manufacturer_catalog()
 
     stats = {
         "total_cells": 0,
@@ -230,6 +232,7 @@ def transform_bom(
                 nit_catalog=nit_catalog,
                 coat_catalog=coat_catalog,
                 pg_catalog=pg_catalog,
+                man_catalog=man_catalog,
                 embedded_hardness=embedded_hardness,
                 stats=stats,
             )
@@ -404,6 +407,7 @@ def _transform_field(
     nit_catalog,
     coat_catalog,
     pg_catalog,
+    man_catalog,
     embedded_hardness: str | None,
     stats: dict,
 ) -> CellTransformation:
@@ -620,6 +624,34 @@ def _transform_field(
             transformed_value=clean_text(raw_str),
             confidence=0.4,
             method="passthrough",
+        )
+
+    # --- Manufacturer (exact catalog match only — no fuzzy, DATA-003) ---
+    if field_name == "Manufacturer":
+        match = man_catalog.match(raw_str)
+        if match.canonical:
+            stats["master_data_matched"] += 1
+            stats["transformed"] += 1
+            return CellTransformation(
+                target_field=field_name,
+                target_column=field_column,
+                source_column=source_col,
+                raw_value=raw_str,
+                transformed_value=match.canonical,
+                confidence=match.confidence,
+                method=f"master_data:{match.method}",
+                notes=f"Matched to canonical manufacturer '{match.canonical}'",
+            )
+        stats["passthrough"] += 1
+        return CellTransformation(
+            target_field=field_name,
+            target_column=field_column,
+            source_column=source_col,
+            raw_value=raw_str,
+            transformed_value=clean_text(raw_str),
+            confidence=0.5,
+            method="passthrough",
+            notes="No manufacturer catalog match; raw value passed through",
         )
 
     # --- Integer fields (counts) ---

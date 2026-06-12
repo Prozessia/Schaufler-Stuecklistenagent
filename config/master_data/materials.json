@@ -8,13 +8,25 @@
       "din_name": "X38CrMoV5-1",
       "category": "hot_work_steel",
       "aliases": [
-        "1.2343", "1.2343ESU", "1-2343_ESU", "1-2343 ESU", "1-2343",
-        "X38CrMoV5-1", "X38CrMoV51",
-        "H-13", "H13", "H 13",
-        "SKD61", "SKD 61",
-        "Thermodur 2343 EFS", "Thermodur 2343"
+        "1.2343",
+        "1.2343ESU",
+        "1-2343_ESU",
+        "1-2343 ESU",
+        "1-2343",
+        "X38CrMoV5-1",
+        "X38CrMoV51",
+        "H-13",
+        "H13",
+        "H 13",
+        "SKD61",
+        "SKD 61",
+        "Thermodur 2343 EFS",
+        "Thermodur 2343"
       ],
-      "typical_hardness_hrc": [42, 52],
+      "typical_hardness_hrc": [
+        42,
+        52
+      ],
       "typical_use": "Formeinsätze, Kerne, Schieber"
     },
     {
@@ -23,11 +35,20 @@
       "din_name": "X40CrMoV5-1",
       "category": "hot_work_steel",
       "aliases": [
-        "1.2344", "1.2344ESU", "1-2344_ESU", "1-2344 ESU", "1-2344",
-        "X40CrMoV5-1", "X40CrMoV51",
-        "H-13 Superior", "H-13 Premium"
+        "1.2344",
+        "1.2344ESU",
+        "1-2344_ESU",
+        "1-2344 ESU",
+        "1-2344",
+        "X40CrMoV5-1",
+        "X40CrMoV51",
+        "H-13 Superior",
+        "H-13 Premium"
       ],
-      "typical_hardness_hrc": [44, 52],
+      "typical_hardness_hrc": [
+        44,
+        52
+      ],
       "typical_use": "Hochbelastete Formeinsätze"
     },
     {
@@ -36,11 +57,17 @@
       "din_name": "40CrMnMoS8-6",
       "category": "mold_steel",
       "aliases": [
-        "1.2312", "1-2312",
-        "40CrMnMoS8-6", "40CrMnMoS86",
-        "P20+S", "P20 S"
+        "1.2312",
+        "1-2312",
+        "40CrMnMoS8-6",
+        "40CrMnMoS86",
+        "P20+S",
+        "P20 S"
       ],
-      "typical_hardness_hrc": [28, 34],
+      "typical_hardness_hrc": [
+        28,
+        34
+      ],
       "typical_use": "Formrahmen, Platten"
     },
     {
@@ -49,11 +76,18 @@
       "din_name": "40CrMnNiMo8-6-4",
       "category": "mold_steel",
       "aliases": [
-        "1.2738", "1-2738",
-        "40CrMnNiMo8-6-4", "40CrMnNiMo864",
-        "P20+Ni", "P20 Ni", "P20 Modified"
+        "1.2738",
+        "1-2738",
+        "40CrMnNiMo8-6-4",
+        "40CrMnNiMo864",
+        "P20+Ni",
+        "P20 Ni",
+        "P20 Modified"
       ],
-      "typical_hardness_hrc": [28, 34],
+      "typical_hardness_hrc": [
+        28,
+        34
+      ],
       "typical_use": "Formrahmen, große Platten"
     },
     {
@@ -62,11 +96,15 @@
       "din_name": "40CrMnMo7",
       "category": "mold_steel",
       "aliases": [
-        "1.2311", "1-2311",
+        "1.2311",
+        "1-2311",
         "40CrMnMo7",
         "P20"
       ],
-      "typical_hardness_hrc": [28, 34],
+      "typical_hardness_hrc": [
+        28,
+        34
+      ],
       "typical_use": "Formrahmen"
     },
     {
@@ -75,11 +113,16 @@
       "din_name": "X3NiCoMoTi18-9-5",
       "category": "maraging_steel",
       "aliases": [
-        "1.2709", "1-2709",
+        "1.2709",
+        "1-2709",
         "X3NiCoMoTi18-9-5",
-        "Maraging 300", "18Ni300"
+        "Maraging 300",
+        "18Ni300"
       ],
-      "typical_hardness_hrc": [48, 54],
+      "typical_hardness_hrc": [
+        48,
+        54
+      ],
       "typical_use": "Hochfeste Einsätze"
     },
     {
@@ -88,11 +131,17 @@
       "din_name": "C45W",
       "category": "carbon_steel",
       "aliases": [
-        "1.1730", "1-1730",
-        "C45W", "C45",
-        "1045", "AISI 1045"
+        "1.1730",
+        "1-1730",
+        "C45W",
+        "C45",
+        "1045",
+        "AISI 1045"
       ],
-      "typical_hardness_hrc": [0, 30],
+      "typical_hardness_hrc": [
+        0,
+        30
+      ],
       "typical_use": "Aufbauplatte, Halter"
     },
     {
@@ -101,9 +150,14 @@
       "din_name": "S355J2",
       "category": "structural_steel",
       "aliases": [
-        "1.0570", "1-0570",
-        "S355J2", "S355",
-        "St52-3", "St 52-3", "St52", "St 52"
+        "1.0570",
+        "1-0570",
+        "S355J2",
+        "S355",
+        "St52-3",
+        "St 52-3",
+        "St52",
+        "St 52"
       ],
       "typical_hardness_hrc": null,
       "typical_use": "Aufbauplatte, Strukturteile"
@@ -114,8 +168,11 @@
       "din_name": "S235JR",
       "category": "structural_steel",
       "aliases": [
-        "1.0052", "1.0052-3", "1-0052",
-        "S235JR", "S235",
+        "1.0052",
+        "1.0052-3",
+        "1-0052",
+        "S235JR",
+        "S235",
         "St37"
       ],
       "typical_hardness_hrc": null,
@@ -127,10 +184,18 @@
       "din_name": null,
       "category": "copper",
       "aliases": [
-        "Cu", "Kupfer", "Copper",
-        "CuBe", "CuBe2", "Berylliumkupfer", "Beryllium-Kupfer",
-        "CW101C", "CW104C",
-        "MOLDMAX HH", "MOLDMAX", "Ampcoloy"
+        "Cu",
+        "Kupfer",
+        "Copper",
+        "CuBe",
+        "CuBe2",
+        "Berylliumkupfer",
+        "Beryllium-Kupfer",
+        "CW101C",
+        "CW104C",
+        "MOLDMAX HH",
+        "MOLDMAX",
+        "Ampcoloy"
       ],
       "typical_hardness_hrc": null,
       "typical_use": "Kerne, Einsätze (Wärmeleitfähigkeit)"
@@ -141,9 +206,13 @@
       "din_name": "AlSi9Cu3(Fe)",
       "category": "aluminium",
       "aliases": [
-        "AlSi9Cu3", "AlSi9Cu3Fe", "AlSi9Cu3(Fe)",
-        "A380", "ADC12",
-        "226", "EN AC-46000"
+        "AlSi9Cu3",
+        "AlSi9Cu3Fe",
+        "AlSi9Cu3(Fe)",
+        "A380",
+        "ADC12",
+        "226",
+        "EN AC-46000"
       ],
       "typical_hardness_hrc": null,
       "typical_use": "Gussteil (Referenz-Material)"
@@ -154,9 +223,11 @@
       "din_name": "X8CrNiS18-9",
       "category": "stainless_steel",
       "aliases": [
-        "1.4305", "1-4305",
+        "1.4305",
+        "1-4305",
         "X8CrNiS18-9",
-        "AISI 303", "303"
+        "AISI 303",
+        "303"
       ],
       "typical_hardness_hrc": null,
       "typical_use": "Korrosionsbeständige Teile"
@@ -167,9 +238,11 @@
       "din_name": "X2CrNiMo17-12-2",
       "category": "stainless_steel",
       "aliases": [
-        "1.4404", "1-4404",
+        "1.4404",
+        "1-4404",
         "X2CrNiMo17-12-2",
-        "AISI 316L", "316L"
+        "AISI 316L",
+        "316L"
       ],
       "typical_hardness_hrc": null,
       "typical_use": "Korrosionsbeständige Teile"
@@ -180,7 +253,8 @@
       "din_name": "E335",
       "category": "structural_steel",
       "aliases": [
-        "1.0060", "E335",
+        "1.0060",
+        "E335",
         "11600"
       ],
       "typical_hardness_hrc": null,
@@ -192,9 +266,14 @@
       "din_name": null,
       "category": "hot_work_steel",
       "aliases": [
-        "Dievar", "DIEVAR", "Dievar ESR"
+        "Dievar",
+        "DIEVAR",
+        "Dievar ESR"
       ],
-      "typical_hardness_hrc": [44, 50],
+      "typical_hardness_hrc": [
+        44,
+        50
+      ],
       "typical_use": "Hochleistungs-Formeinsätze (Uddeholm)"
     },
     {
@@ -203,9 +282,15 @@
       "din_name": null,
       "category": "hot_work_steel",
       "aliases": [
-        "Orvar Supreme", "ORVAR SUPREME", "Orvar", "ORVAR"
+        "Orvar Supreme",
+        "ORVAR SUPREME",
+        "Orvar",
+        "ORVAR"
       ],
-      "typical_hardness_hrc": [44, 52],
+      "typical_hardness_hrc": [
+        44,
+        52
+      ],
       "typical_use": "Formeinsätze (Uddeholm H-13 Variante)"
     },
     {
@@ -214,11 +299,15 @@
       "din_name": "X45NiCrMo4",
       "category": "hot_work_steel",
       "aliases": [
-        "1.2767", "1-2767",
+        "1.2767",
+        "1-2767",
         "X45NiCrMo4",
         "6F7"
       ],
-      "typical_hardness_hrc": [40, 48],
+      "typical_hardness_hrc": [
+        40,
+        48
+      ],
       "typical_use": "Schieber, Kerne"
     },
     {
@@ -227,11 +316,1796 @@
       "din_name": "X33CrS16",
       "category": "mold_steel",
       "aliases": [
-        "1.2085", "1-2085",
+        "1.2085",
+        "1-2085",
         "X33CrS16"
       ],
-      "typical_hardness_hrc": [28, 34],
+      "typical_hardness_hrc": [
+        28,
+        34
+      ],
       "typical_use": "Korrosionsbeständige Formen"
+    },
+    {
+      "canonical": "1.0026",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0026"
+    },
+    {
+      "canonical": "1.0030",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0030"
+    },
+    {
+      "canonical": "1.0035",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0035"
+    },
+    {
+      "canonical": "1.0036",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0036"
+    },
+    {
+      "canonical": "1.0037",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0037"
+    },
+    {
+      "canonical": "1.0037 K",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.0038",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0038"
+    },
+    {
+      "canonical": "1.0044",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0044"
+    },
+    {
+      "canonical": "1.0045",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0045"
+    },
+    {
+      "canonical": "1.0050",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0050"
+    },
+    {
+      "canonical": "1.0050 K",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.0114",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0114"
+    },
+    {
+      "canonical": "1.0116G",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.0121",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0121"
+    },
+    {
+      "canonical": "1.0255",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0255"
+    },
+    {
+      "canonical": "1.0308",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0308"
+    },
+    {
+      "canonical": "1.0308K",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.0330",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0330"
+    },
+    {
+      "canonical": "1.0503",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0503"
+    },
+    {
+      "canonical": "1.0542",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0542"
+    },
+    {
+      "canonical": "1.0577",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0577"
+    },
+    {
+      "canonical": "1.0580",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0580"
+    },
+    {
+      "canonical": "1.0710",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0710"
+    },
+    {
+      "canonical": "1.0711",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0711"
+    },
+    {
+      "canonical": "1.0715",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0715"
+    },
+    {
+      "canonical": "1.0718",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0718"
+    },
+    {
+      "canonical": "1.0718 K",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.0727",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0727"
+    },
+    {
+      "canonical": "1.0736",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.0736"
+    },
+    {
+      "canonical": "1.1141",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.1141"
+    },
+    {
+      "canonical": "1.1151",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.1151"
+    },
+    {
+      "canonical": "1.1191",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.1191"
+    },
+    {
+      "canonical": "1.1213",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.1213"
+    },
+    {
+      "canonical": "1.1269",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.1269"
+    },
+    {
+      "canonical": "1.2067",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2067"
+    },
+    {
+      "canonical": "1.2080",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2080"
+    },
+    {
+      "canonical": "1.2162",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2162"
+    },
+    {
+      "canonical": "1.2162 ESU",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.2210",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2210"
+    },
+    {
+      "canonical": "1.2311 Guß",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.2312 Guß",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.2316",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2316"
+    },
+    {
+      "canonical": "1.2323",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2323"
+    },
+    {
+      "canonical": "1.2340",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2340"
+    },
+    {
+      "canonical": "1.2343 ESU 3D VGN",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.2343 ESU VGN",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.2343 ESU VGT",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.2343 VGN",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.2343 VGT",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.2347",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2347"
+    },
+    {
+      "canonical": "1.2355",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2355"
+    },
+    {
+      "canonical": "1.2358",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2358"
+    },
+    {
+      "canonical": "1.2365",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2365"
+    },
+    {
+      "canonical": "1.2367",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2367"
+    },
+    {
+      "canonical": "1.2367 ESU",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.2379",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2379"
+    },
+    {
+      "canonical": "1.2399 ESU",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.2436",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2436"
+    },
+    {
+      "canonical": "1.2516",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2516"
+    },
+    {
+      "canonical": "1.2567",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2567"
+    },
+    {
+      "canonical": "1.2709 iTherm",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.2711",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2711"
+    },
+    {
+      "canonical": "1.2713",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2713"
+    },
+    {
+      "canonical": "1.2714",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2714"
+    },
+    {
+      "canonical": "1.2721",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2721"
+    },
+    {
+      "canonical": "1.2738 HH",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.2738 mod.",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.2738 VGT",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.2738HH ESU",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.2764",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2764"
+    },
+    {
+      "canonical": "1.2799",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2799"
+    },
+    {
+      "canonical": "1.2823",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2823"
+    },
+    {
+      "canonical": "1.2842",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.2842"
+    },
+    {
+      "canonical": "1.3505",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.3505"
+    },
+    {
+      "canonical": "1.4006",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.4006"
+    },
+    {
+      "canonical": "1.4112",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.4112"
+    },
+    {
+      "canonical": "1.4301",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.4301"
+    },
+    {
+      "canonical": "1.4310",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.4310"
+    },
+    {
+      "canonical": "1.4568",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.4568"
+    },
+    {
+      "canonical": "1.4571",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.4571"
+    },
+    {
+      "canonical": "1.4841",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.4841"
+    },
+    {
+      "canonical": "1.5755",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.5755"
+    },
+    {
+      "canonical": "1.6359",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.6359"
+    },
+    {
+      "canonical": "1.6511",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.6511"
+    },
+    {
+      "canonical": "1.6523",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.6523"
+    },
+    {
+      "canonical": "1.6566",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.6566"
+    },
+    {
+      "canonical": "1.6582",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.6582"
+    },
+    {
+      "canonical": "1.6587",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.6587"
+    },
+    {
+      "canonical": "1.6956",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.6956"
+    },
+    {
+      "canonical": "1.7131",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.7131"
+    },
+    {
+      "canonical": "1.7225",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.7225"
+    },
+    {
+      "canonical": "1.7225 VGT",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "1.7311",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.7311"
+    },
+    {
+      "canonical": "1.7345",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.7345"
+    },
+    {
+      "canonical": "1.7354",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.7354"
+    },
+    {
+      "canonical": "1.7709",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.7709"
+    },
+    {
+      "canonical": "1.8159",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.8159"
+    },
+    {
+      "canonical": "1.8550",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.8550"
+    },
+    {
+      "canonical": "1.9905",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.9905"
+    },
+    {
+      "canonical": "1.9995",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.9995"
+    },
+    {
+      "canonical": "1.9999",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "1.9999"
+    },
+    {
+      "canonical": "18NiCrMo5",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "2.0401",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "2.0401"
+    },
+    {
+      "canonical": "2.0598",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "2.0598"
+    },
+    {
+      "canonical": "2.0855",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "2.0855"
+    },
+    {
+      "canonical": "2.1080",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "2.1080"
+    },
+    {
+      "canonical": "2.1247",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "2.1247"
+    },
+    {
+      "canonical": "2.1285",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "2.1285"
+    },
+    {
+      "canonical": "2.4668 Incon",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "2.4969",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "2.4969"
+    },
+    {
+      "canonical": "3.1645",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "3.1645"
+    },
+    {
+      "canonical": "3.3547",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "3.3547"
+    },
+    {
+      "canonical": "3.4365",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "3.4365"
+    },
+    {
+      "canonical": "3.4545",
+      "aliases": [],
+      "source": "stammdaten_template_import",
+      "werkstoff_nr": "3.4545"
+    },
+    {
+      "canonical": "4140",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "4140 PH",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "A-2",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "A-50",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Adapter",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Aluminium",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Anviloy",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "ASTM A574",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "ASTM F835",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "BRA-GLA*SI",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "BRA-GLA3",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "BRA-GLA-N",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Brass",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Bronze",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "C 40",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "C.R.S.",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "C45+C",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "C45K",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "CuZn",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Densimet D2M",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 1027-Z40",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 1029",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 10305-1",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 11024",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 125",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 125 B",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 128",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 1440",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 1476",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 1481",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 1530",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 1530 A",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 1530 AH",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 1530 C",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 16756",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 172",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 179-A",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 179-B",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 1804",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 2093",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 2098",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 2353",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 2391",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 2391/C",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 2440",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Din 2441",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 2448",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 2950",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 3015",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 315",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 316",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 3770",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 3771",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 3771-FPM",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 3901",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 3909",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 417",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Din 43650",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 439",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 444-C",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 463",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 470",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 471",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 472",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 522",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 553",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 580",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 582",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 59410",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 6320",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 6321",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 6325",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 6331",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 6340",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 6379",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 6391",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 6685",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 6798",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 6885-A",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 6885-B",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 6885-C",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 6885-D",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 6885-E",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 6885-F",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 6912",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 7",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 71412",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 7346",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 7349",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 7603-A",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 7603-A Cu",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 7604",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 787/12.9",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 787/8.8",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 7971",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 7979",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 7984",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 7989",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 7991",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 84",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 8405",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 87",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 9021",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 906",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 908",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 910",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 912/12.9",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 912/UNC",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 913",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 914",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 915",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 916",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 923",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 931",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 933",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 934",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 935",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 936",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 938",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 94",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 940",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 963",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 975",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 976",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN 988",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN EN 10056",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN EN 10219",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN EN 1677",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN EN 24032",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN EN 28673",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN EN 28675",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN EN 7719",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN ISO 6751",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN ISO 8405",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN1787",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN179 A",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN2391",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN2391 A570",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN2391 E235",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN2440",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN3015",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN3909",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN6331",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN7603 A",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN7603 Cu",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN787/12.9",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN7984/10.9",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN7991",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN906 SS",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN908 SS",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN913",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN931/12.9",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "DIN933/10.9",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "E235",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "E235N",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "E295",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "E38K",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Eficast 3ER",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Elastomer",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "EN-10305-1",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "EPDM",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Eskylos 2343",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Fastcool 3D",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "FASTCOOL-55",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "FFKM 75/H",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "GG 20",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "GG 25",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "GGG50",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "GPM58 Victory ESR",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "GS50",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "GS52",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "GS60",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Gummi",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "H.R.S.",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "H-11",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "H-11 ESR",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "H-13 ESR",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "HTCS 130DC",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "ISO 104762",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "ISO 7089-A",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "ISO 7379",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "ISO 7380-1A",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "ISO 8434-1",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "ISO 8434-4",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "ISO 8675",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "ISO10642",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "ISO4026",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "ISO4762",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "ISO8734",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "ISO8735",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Kedflon",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Lethiguel",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "MDC-I",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Messing",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Messing rund",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "MS1 Powder",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "P-20",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "QR090",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Rg10",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Rg7",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Rotguß",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Rovalma-Fastool 55",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "S4000",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Silicon",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Thermodur 2343 SUPERCLEAN",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Toolox 44",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "TQ1",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Triamet",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "TZM",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "USD ESR H13 Superior",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "V 2 A",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "V2A DIN2440",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "V2A DIN2441",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "V2A EN-10305-1",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "Viton",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "W260",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "W300",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "W300IB",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "W302",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "W350",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "W350IB",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "W360",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "W360IB",
+      "aliases": [],
+      "source": "stammdaten_template_import"
+    },
+    {
+      "canonical": "W400 VMR",
+      "aliases": [],
+      "source": "stammdaten_template_import"
     }
   ]
 }

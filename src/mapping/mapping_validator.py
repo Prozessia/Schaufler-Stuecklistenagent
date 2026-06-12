@@ -27,7 +27,11 @@ _COMBINED_DIM_RE = re.compile(r"\d+[.,]?\d*\s*[xX×*]\s*\d+")
 # Deliberately not too low: messy/mis-extracted columns (e.g. Magna's broken
 # multiline dimensions) score low and are correctly NOT boosted — self-correcting.
 _VALUE_EVIDENCE_MIN_FRACTION = 0.40
-_VALUE_EVIDENCE_BOOST = 0.92
+# BUG-007: deliberately BELOW the 0.90 green bar. Value evidence may turn a weak
+# YELLOW into a confident YELLOW, but must never single-handedly unlock GREEN —
+# after the full Stammdaten import even a Norm column ("DIN 16756", "EN 10088")
+# resolves heavily against the catalog and would otherwise clear the bar.
+_VALUE_EVIDENCE_BOOST = 0.89
 _DIMENSION_FIELDS_ORDERED = ("Dimensions X/D", "Dimensions Y/L", "Dimensions Z")
 
 

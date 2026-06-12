@@ -20,13 +20,20 @@ scoring:
   soft_green_floor: 0.70
   green_extraction_min_confidence: 0.70
   soft_vetoes_as_yellow: true
-  empty_non_required_as_yellow: false
-  empty_non_required_as_neutral: true
+  # BUG-013: Ein Mapping-Fehlschlag mit VORHANDENEM Quellwert ist nie "neutral" —
+  # er braucht Review (YELLOW). NEUTRAL gibt es nur für wirklich leere optionale
+  # Felder (intentional_empty im Scorer).
+  empty_non_required_as_yellow: true
+  empty_non_required_as_neutral: false
 
 master_data:
   materials_file: "config/master_data/materials.json"
   units_file: "config/master_data/units.json"
   validation_rules_file: "config/master_data/validation_rules.json"
+
+stats:
+  # mit Schaufler kalibrieren (Minuten manueller Übertragung je Zeile)
+  minutes_per_row: 3.0
 
 domain_context: |
   Werkzeugbauunternehmen das Aluminium-Druckgussformen fertigt.

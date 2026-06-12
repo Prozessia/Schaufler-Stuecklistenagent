@@ -270,7 +270,118 @@ async def map_columns(
 
     # Parse the JSON response
     result = _parse_llm_response(response, bom, schema)
+
+    # ARCH-005: independent second opinion on the column mapping. The primary
+    # LLM call is the ONLY semantic judgement in the pipeline — Locks 2/3 verify
+    # values, not column meaning, so a confidently wrong mapping produces
+    # systematic wrong GREENs for a whole column. A cheap second call with a
+    # different framing must AGREE before a column may carry GREEN; on
+    # disagreement the confidence is capped below the 0.90 green bar (the
+    # column stays YELLOW for review). Failure of the consensus call itself
+    # changes nothing (fail-open to today's behaviour, logged).
+    if _consensus_enabled():
+        try:
+            await _apply_mapping_consensus(result, bom, schema, llm)
+        except Exception as exc:  # noqa: BLE001 — consensus must never kill a job
+            logger.warning("Mapping consensus check failed (ignored): %s", exc)
+
     return result
+
+
+_CONSENSUS_CONFIDENCE_CAP = 0.85
+
+_CONSENSUS_SYSTEM = (
+    "Du bist ein unabhängiger Prüfer für Spaltenzuordnungen in technischen "
+    "Stücklisten. Du bekommst Quellspalten mit Beispielwerten und eine Liste "
+    "erlaubter Zielfelder. Ordne jede Quellspalte GENAU EINEM Zielfeld zu oder "
+    "null, wenn keines passt. Urteile nur anhand der Beispielwerte und des "
+    "Spaltennamens. Antworte ausschließlich in JSON."
+)
+
+
+def _consensus_enabled() -> bool:
+    mapping_cfg = load_app_config().get("mapping", {})
+    return bool(mapping_cfg.get("enable_consensus", True))
+
+
+def _build_consensus_prompt(bom: ParsedBOM, schema: TargetSchema) -> str:
+    field_names = ", ".join(f'"{f.name}"' for f in schema.fields)
+    return (
+        "Erlaubte Zielfelder:\n"
+        f"[{field_names}]\n\n"
+        "Quellspalten mit Beispielwerten:\n"
+        f"{_format_source_columns(bom)}\n\n"
+        "Antwortformat (NUR JSON):\n"
+        '{"assignments": {"<quellspalte>": "<zielfeld oder null>", ...}}'
+    )
+
+
+async def _apply_mapping_consensus(
+    result: MappingResult,
+    bom: ParsedBOM,
+    schema: TargetSchema,
+    llm: BaseLLM,
+) -> None:
+    response = await llm.complete(
+        system=_CONSENSUS_SYSTEM,
+        user=_build_consensus_prompt(bom, schema),
+        json_mode=True,
+        temperature=0.0,
+        max_tokens=2048,
+        use_mini=True,
+    )
+
+    try:
+        payload = json.loads(response.content)
+    except json.JSONDecodeError as exc:
+        logger.warning("Consensus response unparseable (ignored): %s", exc)
+        return
+
+    assignments = payload.get("assignments")
+    if not isinstance(assignments, dict):
+        logger.warning("Consensus response missing 'assignments' (ignored)")
+        return
+
+    valid_fields = set(schema.field_names)
+    disagreements = 0
+    for mapping in result.mappings:
+        if not mapping.target_field:
+            continue
+        secondary_raw = assignments.get(mapping.source_column)
+        secondary = (
+            str(secondary_raw).strip()
+            if secondary_raw not in (None, "", "null")
+            else None
+        )
+        if secondary is not None and secondary not in valid_fields:
+            # Hallucinated field name — no usable second opinion for this column.
+            continue
+        if secondary == mapping.target_field:
+            continue
+
+        disagreements += 1
+        mapping.confidence = min(mapping.confidence, _CONSENSUS_CONFIDENCE_CAP)
+        mapping.candidate_confidence = min(
+            mapping.candidate_confidence, _CONSENSUS_CONFIDENCE_CAP
+        )
+        mapping.reasoning = (
+            (mapping.reasoning or "")
+            + f" [KONSENS-ABWEICHUNG: Zweitprüfung sieht "
+            + (f"'{secondary}'" if secondary else "keine Zuordnung")
+            + "]"
+        )
+
+    if disagreements:
+        logger.warning(
+            "Mapping consensus: %d column(s) capped at %.2f (second opinion differs)",
+            disagreements,
+            _CONSENSUS_CONFIDENCE_CAP,
+        )
+        result.notes = (
+            f"{result.notes} | " if result.notes else ""
+        ) + f"Konsens-Prüfung: {disagreements} Spalte(n) ohne Übereinstimmung"
+    else:
+        logger.info("Mapping consensus: all mapped columns confirmed")
 
 
 def _parse_llm_response(

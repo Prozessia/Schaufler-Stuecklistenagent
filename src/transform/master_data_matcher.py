@@ -171,16 +171,20 @@ class MaterialCatalog(_AliasCatalog):
         # GREEN for this method is gated to the deterministic text path in the
         # green gate (the value is read exactly there; never on a Vision misread).
         primary = _extract_primary_material_number(cleaned)
-        if not primary:
-            # M2: standalone stripped form only — the ENTIRE value is a 5-digit
-            # DIN number with the dot swallowed (e.g. "12343"→1.2343, "10116G"→
-            # 1.0116). MUST be standalone: norm references (STAHL EN 10088-2-,
-            # DIN 16756) carry surrounding context and are deliberately excluded —
-            # converting their norm number to a material would be a false-green
-            # disaster (~700 such values across the POC corpus).
-            primary = _standalone_stripped_werkstoff(cleaned)
         if primary:
             return MatchResult(primary, 0.92, "werkstoff_nr_format")
+
+        # M2: standalone stripped form — the ENTIRE value is a 5-digit DIN
+        # number with the dot swallowed (e.g. "12343"→1.2343, "10116G"→1.0116).
+        # MUST be standalone: norm references (STAHL EN 10088-2-, DIN 16756)
+        # carry surrounding context and are deliberately excluded.
+        # DATA-004: the stripped form is a RECONSTRUCTION, not a reading — any
+        # free-standing 5-digit code starting with 1/2 (article numbers!) would
+        # qualify. It is therefore a YELLOW suggestion only: own method name
+        # (not in the green gate's _TEXT_PATH_METHODS) and reduced confidence.
+        stripped = _standalone_stripped_werkstoff(cleaned)
+        if stripped:
+            return MatchResult(stripped, 0.85, "werkstoff_nr_stripped")
 
         return MatchResult(None, 0.0, "no_match")
 
@@ -235,6 +239,35 @@ class CoatingCatalog(_AliasCatalog):
         return self._match_alias(value)
 
 
+class ManufacturerCatalog:
+    """Lookup manufacturers — exact/normalized match ONLY.
+
+    Deliberately no fuzzy matching: manufacturer names are short and similar
+    ("Omron"/"Orbon", "RUD"/"RUKO"), a fuzzy hit would be a textbook false
+    green. Unknown manufacturers stay no_match → passthrough/YELLOW.
+    """
+
+    def __init__(self) -> None:
+        data = _load_json("validation_rules.json")
+        block = data.get("manufacturers", {})
+        alias_map: dict[str, str] = {}
+        for canonical, aliases in (block.get("aliases") or {}).items():
+            alias_map[_normalize(canonical)] = canonical
+            for alias in aliases or []:
+                alias_map[_normalize(alias)] = canonical
+        for canonical in block.get("canonical_values", []):
+            alias_map.setdefault(_normalize(canonical), canonical)
+        self._alias_map = alias_map
+
+    def match(self, value: str) -> MatchResult:
+        if not value or not value.strip():
+            return MatchResult(None, 0.0, "empty")
+        canonical = self._alias_map.get(_normalize(value))
+        if canonical:
+            return MatchResult(canonical, 1.0, "exact_alias")
+        return MatchResult(None, 0.0, "no_match")
+
+
 class PartsGroupCatalog:
     """Lookup parts group codes."""
 
@@ -271,6 +304,11 @@ def get_coating_catalog() -> CoatingCatalog:
 @lru_cache(maxsize=1)
 def get_parts_group_catalog() -> PartsGroupCatalog:
     return PartsGroupCatalog()
+
+
+@lru_cache(maxsize=1)
+def get_manufacturer_catalog() -> ManufacturerCatalog:
+    return ManufacturerCatalog()
 
 
 def _best_fuzzy_alias_match(

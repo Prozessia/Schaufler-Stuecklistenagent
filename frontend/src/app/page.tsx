@@ -24,6 +24,7 @@ function WorkspaceView() {
     jobId,
     result,
     upload,
+    retry,
     jobStatus,
     jobResult,
     editCells,
@@ -34,6 +35,7 @@ function WorkspaceView() {
     showNewUploadBtn,
     headerStatusLabel,
     handleUpload,
+    handleRetry,
     handleExport,
     handleSaveEdits,
     handleExcludeRows,
@@ -108,7 +110,12 @@ function WorkspaceView() {
           <p className="mt-1 text-sm text-muted-foreground">{headerStatusLabel}</p>
         </div>
 
-        {!jobId && <UploadDropzone onUpload={handleUpload} isUploading={upload.isPending} />}
+        {!jobId && (
+          <UploadDropzone
+            onUpload={(file, customer) => handleUpload(file, customer)}
+            isUploading={upload.isPending}
+          />
+        )}
 
         {upload.isError && (
           <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -128,7 +135,13 @@ function WorkspaceView() {
           </Card>
         )}
 
-        {jobFailed && jobStatus.data && <ProcessingStatus job={jobStatus.data} />}
+        {jobFailed && jobStatus.data && (
+          <ProcessingStatus
+            job={jobStatus.data}
+            onRetry={handleRetry}
+            isRetrying={retry.isPending}
+          />
+        )}
 
         {jobResult.isError && (
           <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">

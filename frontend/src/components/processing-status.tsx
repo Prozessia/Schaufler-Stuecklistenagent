@@ -2,12 +2,15 @@
 
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Loader2, CheckCircle2, XCircle, RefreshCw } from "lucide-react";
 import type { JobStatus } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 interface ProcessingStatusProps {
   job: JobStatus;
+  onRetry?: () => void;
+  isRetrying?: boolean;
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -17,6 +20,21 @@ const STAGE_LABELS: Record<string, string> = {
   failed: "Fehlgeschlagen",
 };
 
+/** Translate known backend error prefixes to user-friendly German messages. */
+export function translateErrorMessage(error: string | null | undefined): string {
+  if (!error) return "Unbekannter Fehler";
+  if (error.includes("LLM initialization failed")) {
+    return "KI-Dienst nicht erreichbar — bitte später erneut versuchen";
+  }
+  if (error.includes("parsing source file failed")) {
+    return "Datei konnte nicht gelesen werden";
+  }
+  if (error.includes("mapping columns failed")) {
+    return "Spalten-Zuordnung fehlgeschlagen";
+  }
+  return error;
+}
+
 const STATUS_BADGE_CLASSES: Record<string, string> = {
   pending: "bg-brand/12 text-brand",
   processing: "bg-brand/12 text-brand",
@@ -24,11 +42,16 @@ const STATUS_BADGE_CLASSES: Record<string, string> = {
   failed: "bg-[hsl(var(--status-red))]/12 text-[hsl(var(--status-red))]",
 };
 
-export function ProcessingStatus({ job }: ProcessingStatusProps) {
+export function ProcessingStatus({ job, onRetry, isRetrying }: ProcessingStatusProps) {
   const progress = Math.round(job.progress * 100);
   const isActive = job.status === "pending" || job.status === "processing";
   const isFailed = job.status === "failed";
   const isDone = job.status === "completed";
+
+  const pendingLabel =
+    job.status === "pending" && job.queue_position != null
+      ? `Warteschlange: Position ${job.queue_position}`
+      : STAGE_LABELS[job.status] || job.status;
 
   return (
     <Card className="rounded-[1.75rem]">
@@ -48,7 +71,7 @@ export function ProcessingStatus({ job }: ProcessingStatusProps) {
                     {job.filename}
                   </h2>
                   <p className="mt-2 text-sm text-[var(--text-secondary)]">
-                    {STAGE_LABELS[job.status] || job.status}
+                    {pendingLabel}
                   </p>
                 </div>
               </div>
@@ -71,7 +94,27 @@ export function ProcessingStatus({ job }: ProcessingStatusProps) {
             </div>
             <Progress value={progress} className="gap-0" />
             {isFailed && job.error && (
-              <p className="mt-3 text-sm text-destructive">{job.error}</p>
+              <p className="mt-3 text-sm text-destructive">
+                {translateErrorMessage(job.error)}
+              </p>
+            )}
+            {isFailed && onRetry && (
+              <div className="mt-3">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onRetry}
+                  disabled={isRetrying}
+                  className="h-9 rounded-xl"
+                >
+                  {isRetrying ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                  )}
+                  Erneut verarbeiten
+                </Button>
+              </div>
             )}
           </div>
         </div>

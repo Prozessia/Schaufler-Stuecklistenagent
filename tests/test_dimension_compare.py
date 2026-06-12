@@ -34,7 +34,12 @@ def test_german_comma_components_match(comparator: ValueComparator) -> None:
 
 
 def test_wrong_component_value_still_mismatches(comparator: ValueComparator) -> None:
-    """Anti-false-green: a value that is NOT in the source must stay MISMATCH."""
+    """Anti-false-green: a wrongly-assigned component is a DEFINITIVE mismatch.
+
+    The positional check compares the mapped value against the token at its
+    component position; a contradiction is hard MISMATCH (veto), not UNCERTAIN —
+    UNCERTAIN would let the text path promote the cell to GREEN.
+    """
     result = comparator.compare_values(
         "999", "2300x2080x563", "Dimensions Y/L", extraction_confidence=0.97
     )
@@ -51,8 +56,14 @@ def test_positional_only_fires_for_combined_strings(comparator: ValueComparator)
 
 
 def test_positional_needs_high_confidence(comparator: ValueComparator) -> None:
-    """Low extraction confidence must not earn the positional match."""
+    """Low extraction confidence must not earn the positional match.
+
+    After BUG-009 (_parse_decimal uses fullmatch), compound strings like
+    "2300x2080x563" no longer partially parse as a scalar. At low confidence the
+    component AGREES with its position, but MATCH stays gated on confidence —
+    the result is UNCERTAIN (review), never MATCH.
+    """
     result = comparator.compare_values(
         "2080", "2300x2080x563", "Dimensions Y/L", extraction_confidence=0.5
     )
-    assert result.result == MatchResult.MISMATCH
+    assert result.result == MatchResult.UNCERTAIN

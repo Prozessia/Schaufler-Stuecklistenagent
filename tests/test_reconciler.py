@@ -181,3 +181,79 @@ def test_assertion_now_sharp(
     with pytest.raises(ZeroDataLossError, match="DATA LOSS DETECTED"):
         export_to_excel(audit, tmp_path / "out.xlsx", add_audit_sheet=False)
     save_spy.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# BUG-011: Unterdeckungs-Synthese für doppelte Positionsnummern
+# ---------------------------------------------------------------------------
+
+
+def test_bug011_duplicate_position_underextraction_synthesises_missing() -> None:
+    """BUG-011: counts={"10": 2}, one extracted row → 1 additional synthetic row.
+
+    If the Vision model saw position "10" twice in the RAW rows but only one
+    row with that position survived to the extracted set, the reconciler must
+    inject exactly one additional synthetic MISSING row so the shortfall is
+    visible as RED rather than being silently swallowed.
+    """
+    tr = _result(["10"], has_text_layer=False)
+    reconcile_positions(
+        tr,
+        raw_pdf_positions=["10"],
+        schema=_schema(),
+        raw_pdf_position_counts={"10": 2},
+    )
+
+    synthetic = [r for r in tr.rows if r.is_synthetic]
+    assert len(synthetic) == 1, f"Expected 1 synthetic row, got {len(synthetic)}"
+    assert synthetic[0].is_synthetic is True
+    assert synthetic[0].cells[0].transformed_value == "10"
+    notes = synthetic[0].cells[0].notes
+    assert "1 von 2" in notes, f"Expected '1 von 2' in notes, got: {notes!r}"
+
+
+def test_bug011_no_extra_synthesis_when_fully_extracted() -> None:
+    """BUG-011: counts={"10": 2}, two extracted rows → NO additional synthesis.
+
+    When all occurrences are already present, the reconciler must not add
+    spurious synthetic rows.
+    """
+    tr = _result(["10", "10"], has_text_layer=False)
+    reconcile_positions(
+        tr,
+        raw_pdf_positions=["10"],
+        schema=_schema(),
+        raw_pdf_position_counts={"10": 2},
+    )
+
+    synthetic = [r for r in tr.rows if r.is_synthetic]
+    assert len(synthetic) == 0, f"Expected no synthetic rows, got {len(synthetic)}"
+
+
+def test_bug011_empty_counts_leaves_behaviour_unchanged() -> None:
+    """BUG-011: counts empty/None → existing behaviour unaffected.
+
+    Existing tests (test_reconciler_reinjects_missing_*) cover the main paths;
+    this test verifies that passing an empty or absent counts dict does not
+    introduce phantom rows.
+    """
+    tr = _result(["1-1", "1-2"], has_text_layer=False)
+    reconcile_positions(
+        tr,
+        raw_pdf_positions=["1-1", "1-2"],
+        schema=_schema(),
+        raw_pdf_position_counts={},
+    )
+
+    synthetic = [r for r in tr.rows if r.is_synthetic]
+    assert len(synthetic) == 0
+
+    tr2 = _result(["1-1", "1-2"], has_text_layer=False)
+    reconcile_positions(
+        tr2,
+        raw_pdf_positions=["1-1", "1-2"],
+        schema=_schema(),
+        raw_pdf_position_counts=None,
+    )
+    synthetic2 = [r for r in tr2.rows if r.is_synthetic]
+    assert len(synthetic2) == 0

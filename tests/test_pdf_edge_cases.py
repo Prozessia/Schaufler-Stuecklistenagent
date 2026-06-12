@@ -214,7 +214,7 @@ async def test_parse_file_falls_back_to_vision_when_reconstruction_declines(
 
         raise ExtractionError("no reliable BOM table structure")
 
-    async def _parse_vision(_filepath: Path, _llm: object) -> ParsedBOM:
+    async def _parse_vision(_filepath: Path, _llm: object, **_kwargs: object) -> ParsedBOM:
         return vision_result
 
     monkeypatch.setattr(coordinate_table, "reconstruct_table", _decline)
@@ -292,4 +292,47 @@ def test_extract_pdf_page_texts_preserves_block_layout(
         in texts[0]
     )
     assert "ROW 002: [x=10-40] 20 || [x=80-220] Core plate || [x=260-290] 1" in texts[0]
+
+
+# ---------------------------------------------------------------------------
+# BUG-020: vision_fallback_reason always set on legacy fallback (FIX 4)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_legacy_fallback_always_sets_vision_fallback_reason(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """vision_fallback_reason is set unconditionally when the primary parser
+    throws, regardless of the has_text_layer state (BUG-020)."""
+    pdf_path = tmp_path / "broken.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4 broken")
+
+    # has_text_layer returns True so that the text-layer branch is entered
+    monkeypatch.setattr(pdf_parser, "pdf_has_text_layer", lambda _filepath: True)
+
+    async def _raise(*_args: object, **_kwargs: object) -> ParsedBOM:
+        raise RuntimeError("simulated primary parse failure")
+
+    monkeypatch.setattr(coordinate_table, "reconstruct_table", _raise)
+
+    legacy_bom = ParsedBOM(
+        source=SourceMetadata(
+            filename=pdf_path.name,
+            filepath=str(pdf_path),
+            customer="",
+            format=FileFormat.PDF,
+        ),
+        headers=["POS"],
+        rows=[],
+    )
+
+    monkeypatch.setattr(pdf_parser_legacy, "parse_pdf", lambda _filepath: legacy_bom)
+
+    result = await structure_normalizer.parse_file(pdf_path, llm=object())
+
+    # vision_fallback_reason must always be set — even when has_text_layer was True
+    assert "vision_fallback_reason" in result.metadata
+    assert result.metadata["vision_fallback_reason"]  # non-empty string
+    assert result.metadata.get("legacy_parser_used") is True
 

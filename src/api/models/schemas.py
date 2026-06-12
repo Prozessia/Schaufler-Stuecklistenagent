@@ -16,6 +16,7 @@ class JobStatus(BaseModel):
     customer: str = ""
     progress: float = 0.0  # 0.0 - 1.0
     error: str | None = None
+    queue_position: int | None = None
 
 
 class JobSummary(JobStatus):
@@ -152,6 +153,8 @@ class JobResult(BaseModel):
     # ZDL-1: completeness guarantee surfaced for the dashboard banner.
     completeness_guaranteed: bool = False
     completeness_reason: str = ""
+    # ARCH-003: explains why a source type cannot produce GREEN (Excel/CSV).
+    green_policy_note: str = ""
     expected_position_count: int = 0
     guard_basis: str = "none"
     # R3: row indices the reviewer deliberately excluded (hidden from rows, skipped

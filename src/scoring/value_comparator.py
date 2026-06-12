@@ -71,7 +71,7 @@ _BOOLEAN_FIELDS = {
     "Drawings sent to STL",
     "Drawings sent from STL",
 }
-_ALIAS_FIELDS = {"Nitriding type", "Coating", "Parts Group"}
+_ALIAS_FIELDS = {"Nitriding type", "Coating", "Parts Group", "Manufacturer"}
 
 _TRUE_DEFAULTS = {"yes", "ja", "true", "1", "x", "oui", "si", "ano"}
 _FALSE_DEFAULTS = {"no", "nein", "false", "0", "", "-", "non", "ne"}
@@ -410,6 +410,16 @@ class ValueComparator:
                 normalized_extracted=extracted_canonical,
             )
 
+        # Canonicals differ (or are unknown to the catalog): fall back to the
+        # generic text compare so two formatting variants of the SAME unknown
+        # value ("Meusburger GmbH" vs "Meusburger-GmbH") still MATCH via relaxed
+        # normalization instead of being hard-vetoed as MISMATCH. Two values
+        # that canonicalize to DIFFERENT catalog entries cannot pass this:
+        # the relaxed cores of distinct names differ as well.
+        generic = _compare_generic_text(mapped_norm, extracted_norm, category)
+        if generic.result == MatchResult.MATCH:
+            return generic
+
         return ValueCompareResult(
             result=MatchResult.MISMATCH,
             detail="canonical values differ",
@@ -571,45 +581,75 @@ class ValueComparator:
         direct_result = self._compare_decimal(mapped_norm, extracted_norm, category)
         if direct_result.result == MatchResult.MATCH:
             return direct_result
-        if extraction_confidence is None or extraction_confidence < 0.90:
-            return direct_result
+
+        # MATCH outcomes require a high-confidence extraction; MISMATCH outcomes
+        # (numeric contradictions) are deterministic content evidence and apply at
+        # ANY confidence — UNCERTAIN would let the text path promote a wrongly
+        # assigned dimension component to GREEN (dimension_split is a verified
+        # method there).
+        high_confidence = (
+            extraction_confidence is not None and extraction_confidence >= 0.90
+        )
 
         mapped_core = _normalize_dimension_core(mapped_norm)
         extracted_core = _normalize_dimension_core(extracted_norm)
         left = _parse_decimal(mapped_core)
         right = _parse_decimal(extracted_core)
-        if left is not None and right is not None and abs(left - right) <= 1e-3:
-            return ValueCompareResult(
-                result=MatchResult.MATCH,
-                detail="dimension semantic numeric match",
-                field_category=category,
-                strict_exact_match=True,
-                normalized_mapped=f"{left:.6f}",
-                normalized_extracted=f"{right:.6f}",
-            )
+        if left is not None and right is not None:
+            if abs(left - right) <= 1e-3:
+                if high_confidence:
+                    return ValueCompareResult(
+                        result=MatchResult.MATCH,
+                        detail="dimension semantic numeric match",
+                        field_category=category,
+                        strict_exact_match=True,
+                        normalized_mapped=f"{left:.6f}",
+                        normalized_extracted=f"{right:.6f}",
+                    )
+            elif len(_dimension_numeric_tokens(extracted_norm)) <= 1:
+                # Both sides are genuine scalars and disagree — definitive mismatch.
+                # Combined strings ("2300x2080x563") take the positional check below.
+                return ValueCompareResult(
+                    result=MatchResult.MISMATCH,
+                    detail=f"dimension numeric mismatch ({left:.6f} != {right:.6f})",
+                    field_category=category,
+                    strict_exact_match=False,
+                    normalized_mapped=f"{left:.6f}",
+                    normalized_extracted=f"{right:.6f}",
+                )
 
         # Fix A: a single component split from a COMBINED source string (e.g. the
         # "2080" of Y/L from "2300x2080x563") matches the numeric token AT ITS
         # POSITION in the source — X/D=1st, Y/L=2nd, Z=3rd. Positional (not mere
-        # containment), so a wrongly-assigned component still mismatches → no
-        # false-green. Only fires for the deterministic, high-confidence path.
+        # containment): a wrongly-assigned component is a definitive MISMATCH at
+        # any confidence; the MATCH direction stays gated on high confidence.
         component_index = _DIMENSION_COMPONENT_INDEX.get(target_field)
         mapped_number = _parse_decimal(mapped_norm)
         if component_index is not None and mapped_number is not None:
             tokens = _dimension_numeric_tokens(extracted_norm)
-            if (
-                len(tokens) >= 2  # a genuine combined dimension string, not a scalar
-                and component_index < len(tokens)
-                and abs(mapped_number - tokens[component_index]) <= 1e-3
-            ):
-                return ValueCompareResult(
-                    result=MatchResult.MATCH,
-                    detail="dimension component matches source position",
-                    field_category=category,
-                    strict_exact_match=True,
-                    normalized_mapped=f"{mapped_number:.6f}",
-                    normalized_extracted=extracted_norm,
-                )
+            if len(tokens) >= 2 and component_index < len(tokens):
+                if abs(mapped_number - tokens[component_index]) <= 1e-3:
+                    if high_confidence:
+                        return ValueCompareResult(
+                            result=MatchResult.MATCH,
+                            detail="dimension component matches source position",
+                            field_category=category,
+                            strict_exact_match=True,
+                            normalized_mapped=f"{mapped_number:.6f}",
+                            normalized_extracted=extracted_norm,
+                        )
+                else:
+                    return ValueCompareResult(
+                        result=MatchResult.MISMATCH,
+                        detail=(
+                            "dimension component contradicts source position "
+                            f"({mapped_number:g} != {tokens[component_index]:g})"
+                        ),
+                        field_category=category,
+                        strict_exact_match=False,
+                        normalized_mapped=f"{mapped_number:.6f}",
+                        normalized_extracted=extracted_norm,
+                    )
 
         return direct_result
 
@@ -654,6 +694,16 @@ class ValueComparator:
         document_text_layer: str | None,
         base_result: MatchResult,
     ) -> bool:
+        """BUG-004: token-bounded, length-guarded document presence check.
+
+        The old check concatenated the WHOLE document into one alphanumeric
+        string and looked for a substring — hits across token/cell/row
+        boundaries, and short part numbers matched everywhere. Now the part
+        number must appear as a whole token sequence (flexible separators,
+        hard alnum boundaries) and carry at least 6 core characters. This is
+        still document-global (not row-locked), which is why the resulting
+        match is no longer reported as strict_exact (no GREEN for category A).
+        """
         if extraction_confidence is None or extraction_confidence < 0.90:
             return False
         if (
@@ -663,8 +713,13 @@ class ValueComparator:
             return False
 
         expected_core = _normalize_customer_part_number_core(mapped_norm)
-        document_core = _normalize_customer_part_number_core(document_text_layer or "")
-        return bool(expected_core and document_core and expected_core in document_core)
+        if len(expected_core) < 6:
+            return False
+
+        from src.scoring.pdf_value_extractor import _build_anchor_pattern
+
+        pattern = _build_anchor_pattern(mapped_norm)
+        return bool(pattern and pattern.search(document_text_layer or ""))
 
 
 def _field_category(target_field: str) -> str:
@@ -690,6 +745,7 @@ def _build_alias_lookup(rules: dict) -> dict[str, dict[str, str]]:
         "Nitriding type": "nitriding_types",
         "Coating": "coatings",
         "Parts Group": "parts_groups",
+        "Manufacturer": "manufacturers",
     }
 
     for field_name, rule_key in field_to_rule_key.items():
@@ -857,7 +913,10 @@ def _customer_part_number_text_match_result(
         result=MatchResult.MATCH,
         detail="customer part number verified via global pdf text layer",
         field_category=category,
-        strict_exact_match=True,
+        # BUG-004: document-global presence is NOT row-locked identity proof.
+        # MATCH keeps the cell out of MISMATCH/RED, but without strict_exact the
+        # category-A gate withholds GREEN — the reviewer confirms.
+        strict_exact_match=False,
         normalized_mapped=normalized,
         normalized_extracted=normalized,
     )
@@ -874,28 +933,31 @@ def _parse_int(value: str) -> int | None:
         return None
 
 
+# BUG-002 (sibling): a quantity is a bare integer with at most a known unit
+# suffix. Mixed tokens ("4x10", "M12") must not collapse into integers.
+_QUANTITY_TOKEN_RE = re.compile(
+    r"[-+]?(\d{1,4})(?:[.,]0+)?(?:\s*(?:stk|stck|pcs|pc|ea|x))?",
+    re.IGNORECASE,
+)
+
+
 def _parse_quantity_int(value: str) -> int | None:
     if not value:
         return None
 
-    cleaned = value.strip()
-    cleaned = re.sub(r"([.,])0+\b", "", cleaned)
-    if re.search(r"[.,]\d", cleaned):
-        return None
-
-    digits_only = re.sub(r"\D+", "", cleaned)
-    if not digits_only:
+    match = _QUANTITY_TOKEN_RE.fullmatch(value.strip())
+    if not match:
         return None
 
     try:
-        return int(digits_only)
+        return int(match.group(1))
     except ValueError:
         return None
 
 
 def _parse_decimal(value: str) -> float | None:
     cleaned = value.replace(" ", "").replace(",", ".")
-    match = re.search(r"[-+]?\d*\.?\d+", cleaned)
+    match = re.fullmatch(r"[-+]?\d*\.?\d+", cleaned)
     if not match:
         return None
     try:

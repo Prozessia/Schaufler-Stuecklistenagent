@@ -41,6 +41,7 @@ class ScoringConfig:
         "soft_vetoes_as_yellow",
         "empty_non_required_as_yellow",
         "empty_non_required_as_neutral",
+        "enable_yellow_recheck",
     )
 
     def __init__(
@@ -57,6 +58,7 @@ class ScoringConfig:
         soft_vetoes_as_yellow: bool = False,
         empty_non_required_as_yellow: bool = False,
         empty_non_required_as_neutral: bool = False,
+        enable_yellow_recheck: bool = False,
     ) -> None:
         self.green_threshold = green_threshold
         self.yellow_threshold = yellow_threshold
@@ -69,6 +71,10 @@ class ScoringConfig:
         self.soft_vetoes_as_yellow = soft_vetoes_as_yellow
         self.empty_non_required_as_yellow = empty_non_required_as_yellow
         self.empty_non_required_as_neutral = empty_non_required_as_neutral
+        # ARCH-002: extends the counter-check to scan-path YELLOW cells that meet
+        # every verified-scan precondition — the only path by which a scanned PDF
+        # can earn GREEN. Off by default (cost: Vision calls per page).
+        self.enable_yellow_recheck = enable_yellow_recheck
         # Default weights: transform confidence 40%, rule-based 40%, counter-check 20%
         self.signal_weights = signal_weights or {
             "transform": 0.40,
@@ -84,6 +90,32 @@ class ScoringConfig:
         )
 
 
+def validate_contract(config: ScoringConfig) -> list[str]:
+    """Return human-readable deviations from the Zero-False-Positive contract minimum.
+
+    An empty list means the config meets every contract requirement.
+    Deviations are warnings only — the scorer continues to run.
+    """
+    issues: list[str] = []
+    if not config.enable_counter_check:
+        issues.append("Counter-Check (CHECK5) ist deaktiviert")
+    if not config.conservative_mode:
+        issues.append("conservative_mode ist deaktiviert")
+    if config.verify_green_threshold < 0.95:
+        issues.append(
+            f"verify_green_threshold {config.verify_green_threshold} < 0.95"
+        )
+    if config.green_extraction_min_confidence < 0.80:
+        issues.append(
+            f"green_extraction_min_confidence {config.green_extraction_min_confidence} < 0.80"
+        )
+    if config.soft_vetoes_as_yellow:
+        issues.append(
+            "Koordinaten-Vetos werden zu YELLOW abgeschwächt (soft_vetoes_as_yellow)"
+        )
+    return issues
+
+
 def load_scoring_config() -> ScoringConfig:
     """Load scoring configuration from app_config.yaml + overrides.yaml."""
     config_path = _CONFIG_DIR / "app_config.yaml"
@@ -94,7 +126,7 @@ def load_scoring_config() -> ScoringConfig:
     data = load_app_config()
     scoring = data.get("scoring", {})
 
-    return ScoringConfig(
+    cfg = ScoringConfig(
         green_threshold=scoring.get("green_threshold", 0.90),
         yellow_threshold=scoring.get("yellow_threshold", 0.50),
         enable_counter_check=scoring.get("enable_counter_check", True),
@@ -110,4 +142,10 @@ def load_scoring_config() -> ScoringConfig:
         empty_non_required_as_neutral=scoring.get(
             "empty_non_required_as_neutral", False
         ),
+        enable_yellow_recheck=scoring.get("enable_yellow_recheck", False),
     )
+
+    for deviation in validate_contract(cfg):
+        logger.warning("CONTRACT_DEVIATION: %s", deviation)
+
+    return cfg

@@ -3,7 +3,8 @@
 # Caddy serves ONE public domain and routes same-origin:
 #   /auth /jobs /upload /feedback /stats /settings  -> backend (FastAPI)
 #   everything else                                 -> frontend (Next.js)
-# Same-origin is required so the cookie login (admin/admin) works over HTTPS.
+# Same-origin is required so cookie-based login works over HTTPS.
+# Login credentials are set via LOGIN_ADMIN_USER / LOGIN_ADMIN_PASSWORD in .env.
 #
 # All settings come from .env in this directory (Azure keys, DOMAIN, ACME_EMAIL).
 # Start:  docker compose -f docker-compose.prod.yml up -d --build
@@ -24,6 +25,14 @@ services:
     environment:
       # Same-origin via Caddy → the public domain is the only allowed origin.
       - CORS_ORIGINS=https://${DOMAIN}
+      # SEC-006: disable interactive API docs in production
+      - API_DOCS_ENABLED=false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     volumes:
       - ./config:/app/config:ro
       - ./prompts:/app/prompts:ro

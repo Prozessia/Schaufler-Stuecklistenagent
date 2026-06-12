@@ -50,6 +50,7 @@ export interface JobStatus {
   customer: string;
   progress: number;
   error: string | null;
+  queue_position: number | null;
 }
 
 // GET /jobs returns this richer projection (Phase 0): JobStatus + denormalized
@@ -281,6 +282,8 @@ export interface JobResult {
   // ZDL-1: completeness guarantee for the dashboard banner.
   completeness_guaranteed: boolean;
   completeness_reason: string;
+  // ARCH-003: explains why a source type cannot produce GREEN (Excel/CSV).
+  green_policy_note: string;
   expected_position_count: number;
   guard_basis: string;
   // R3: row indices the reviewer deliberately excluded (skipped from rows + export).
@@ -303,13 +306,25 @@ export interface UploadResponse {
   message: string;
 }
 
-export async function uploadFile(file: File): Promise<UploadResponse> {
+export async function uploadFile(file: File, customer?: string): Promise<UploadResponse> {
   const form = new FormData();
   form.append("file", file);
+  if (customer && customer.trim()) {
+    form.append("customer", customer.trim());
+  }
   const res = await apiFetch("/upload", { method: "POST", body: form });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || "Upload failed");
+  }
+  return res.json();
+}
+
+export async function retryJob(jobId: string): Promise<JobStatus> {
+  const res = await apiFetch(`/jobs/${jobId}/retry`, { method: "POST" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Retry fehlgeschlagen");
   }
   return res.json();
 }

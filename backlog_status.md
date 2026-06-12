@@ -1,7 +1,7 @@
 # Backlog Status und Agenten-Kontext
 
 Stand: 2026-06-04  
-Zweck: Diese Datei ist der gemeinsame Arbeitsstand fuer KI-Agenten. `backlog.md` beschreibt, was zu tun ist. Diese Datei beschreibt, was bereits getan wurde, was gerade laeuft, was blockiert ist und welches Kontextwissen der naechste Agent braucht.
+Zweck: Diese Datei ist der gemeinsame Arbeitsstand fuer KI-Agenten. `backlog_v1_planning.md` beschreibt, was zu tun ist. Diese Datei beschreibt, was bereits getan wurde, was gerade laeuft, was blockiert ist und welches Kontextwissen der naechste Agent braucht.
 
 ## Status-Legende
 
@@ -16,7 +16,7 @@ Zweck: Diese Datei ist der gemeinsame Arbeitsstand fuer KI-Agenten. `backlog.md`
 Vor jedem Ticket:
 
 1. Dieses Dokument lesen.
-2. Passendes Ticket in `backlog.md` lesen.
+2. Passendes Ticket in `backlog_v1_planning.md` lesen.
 3. Status in der Tabelle unten von `TODO` auf `IN_PROGRESS` setzen.
 4. Im Abschnitt `Agent Context Log` eine Startnotiz mit Ticket-ID, Ziel und Annahmen eintragen.
 
@@ -154,7 +154,7 @@ Neue Eintraege immer oben einfuegen.
 - Tickets: Meta-Arbeit, kein Backlog-Ticket abgeschlossen.
 - Aenderungen:
   - `backlog_status.md` als gemeinsamer Status- und Kontextspeicher erstellt.
-  - `backlog.md` um Pflichtprozess fuer Agenten ergaenzt.
+  - `backlog_v1_planning.md` um Pflichtprozess fuer Agenten ergaenzt.
 - Validierung:
   - Noch ausstehend nach Erstellung dieser Datei.
 - Naechster Schritt:
@@ -163,7 +163,7 @@ Neue Eintraege immer oben einfuegen.
 ## Architekturentscheidungen und dauerhafte Learnings
 
 - Status und Kontext werden bewusst in Markdown gepflegt, damit Menschen und KI-Agenten ohne zusaetzliches Tooling damit arbeiten koennen.
-- `backlog.md` bleibt der Plan. `backlog_status.md` ist der mutable Arbeitsstand.
+- `backlog_v1_planning.md` bleibt der Plan. `backlog_status.md` ist der mutable Arbeitsstand.
 - Ein Ticket gilt nicht als `DONE`, wenn keine Validierung eingetragen ist.
 
 ## Offene Entscheidungen

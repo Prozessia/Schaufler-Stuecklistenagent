@@ -21,6 +21,7 @@ class ExtractionMethod(str, Enum):
     PYMUPDF_TEXT = "pymupdf_text"
     GPT4O_VISION = "gpt4o_vision"
     VISION_FALLBACK = "vision_fallback"
+    CSV = "csv"
 
 
 class SourceMetadata(BaseModel):
@@ -66,6 +67,11 @@ class ParsedBOM(BaseModel):
     # trotzdem gezählt → der Guard sieht sie. 5 Teile unter Pos "10" = 5 Bänder
     # (behebt T-007); namenlose Zeilen haben eine Band-ID, aber keine Position.
     pdf_row_bands: list[str] = Field(default_factory=list)
+    # B2/BUG-011: Vorkommens-Zähler je normalisierter Position aus den RAW-Vision-Zeilen
+    # VOR Deduplizierung. Ermöglicht dem Reconciler, doppelte Positionsnummern (z. B.
+    # zweimal "10") zu erkennen und bei Unterdeckung zusätzliche synthetische MISSING-Zeilen
+    # zu erzeugen. {} auf dem Text-Pfad — dort zählt das Band-Set.
+    raw_pdf_position_counts: dict[str, int] = Field(default_factory=dict)
 
     @property
     def total_rows(self) -> int:

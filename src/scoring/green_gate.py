@@ -19,8 +19,10 @@ _TEXT_PATH_METHODS = {
     # catalog). Only green-eligible HERE, on the deterministic text path, where the
     # value is read exactly from the text layer — never on a Vision misread.
     "master_data:werkstoff_nr_format",
-    "master_data:fuzzy_alias",
-    "master_data:fuzzy_material",
+    # BUG-008: fuzzy_alias / fuzzy_material are deliberately NOT green-eligible.
+    # A fuzzy hit is a SUGGESTION (YELLOW with proposal), never proof — at WRatio
+    # cutoffs a wrong canonical (wrong nitriding type/coating) can win and the
+    # comparator would canonicalise the same error on both sides.
     "integer_coerce",
     "decimal_coerce",
     "boolean_normalize",
@@ -126,6 +128,17 @@ def can_be_green(gate_input: GreenGateInput) -> tuple[bool, list[str]]:
     if gate_input.value_match_result != MatchResult.MATCH and not verified_scan:
         return False, ["CHECK3_NOT_MATCH"]
 
+    # BUG-001: the document-text anchor fallback is weak, row-unlocked evidence
+    # that echoes the value under test back as its own "extraction". On every
+    # path it may carry GREEN only together with an independent master-data
+    # confirmation (a verified scan has its own counter-check image evidence).
+    if (
+        gate_input.check2_reason == "global_text_row_anchor"
+        and not gate_input.transform_method.startswith("master_data:")
+        and not verified_scan
+    ):
+        return False, ["ANCHOR_FALLBACK_REQUIRES_MASTER_DATA"]
+
     if gate_input.counter_check_required and not gate_input.counter_check_passed:
         return False, ["CHECK5_COUNTER_CHECK_FAILED"]
 
@@ -190,6 +203,25 @@ def _evaluate_text_path(gate_input: GreenGateInput) -> tuple[bool, list[str]]:
     if gate_input.value_match_result == MatchResult.MISMATCH:
         return False, ["CHECK3_VALUE_MISMATCH"]
 
+    # BUG-006: an UNCERTAIN value match may only carry GREEN when Lock 3
+    # (master data) independently confirms the value. Without that anchor the
+    # only remaining evidence is the mapping confidence — not enough for GREEN.
+    if (
+        gate_input.value_match_result == MatchResult.UNCERTAIN
+        and not gate_input.transform_method.startswith("master_data:")
+    ):
+        return False, ["TEXT_PATH_UNCERTAIN_NEEDS_MASTER_DATA"]
+
+    # BUG-001: the document-text anchor fallback ("global_text_row_anchor") is
+    # weak, row-unlocked evidence. It may support GREEN only when the value is
+    # ALSO catalog-confirmed (independent Lock-3 proof); on its own it merely
+    # echoes the value under test back as the "extraction".
+    if (
+        gate_input.check2_reason == "global_text_row_anchor"
+        and not gate_input.transform_method.startswith("master_data:")
+    ):
+        return False, ["TEXT_PATH_ANCHOR_FALLBACK_REQUIRES_MASTER_DATA"]
+
     if (
         gate_input.field_category == "A"
         and gate_input.value_match_result == MatchResult.MATCH
@@ -232,10 +264,23 @@ def _effective_hard_vetoes(gate_input: GreenGateInput) -> list[str]:
 
 
 def _text_path_method_verified(gate_input: GreenGateInput) -> bool:
+    # BUG-006: the former `transform_confidence >= 0.95` bypass made the
+    # whitelist meaningless — the transform pipeline hands 0.95 to every
+    # passthrough/text_cleanup string cell, so free-text fields with a merely
+    # confident (possibly wrong) column mapping sailed through as "verified".
     if gate_input.transform_method in _TEXT_PATH_METHODS:
         return True
-    if gate_input.transform_confidence >= 0.95:
+
+    # Identity transforms are verified by EVIDENCE, never by confidence: the
+    # output must be a strict exact match of the independently extracted source
+    # value. UNCERTAIN or merely format-equivalent results stay unverified.
+    if (
+        gate_input.transform_method in {"passthrough", "text_cleanup"}
+        and gate_input.value_match_result == MatchResult.MATCH
+        and gate_input.strict_exact_match
+    ):
         return True
+
     return False
 
 

@@ -8,6 +8,7 @@ import {
   getExportUrl,
   getJobResult,
   getJobStatus,
+  retryJob,
   saveEditedCells,
   setRowExclusion,
   uploadFile,
@@ -43,10 +44,18 @@ export function useJobPipeline({ enabled, initialJobId }: UseJobPipelineArgs) {
   }, [initialJobId]);
 
   const upload = useMutation({
-    mutationFn: uploadFile,
+    mutationFn: ({ file, customer }: { file: File; customer?: string }) =>
+      uploadFile(file, customer),
     onSuccess: (data) => {
       setResult(null);
       setJobId(data.job_id);
+    },
+  });
+
+  const retry = useMutation({
+    mutationFn: (jid: string) => retryJob(jid),
+    onSuccess: () => {
+      setResult(null);
     },
   });
 
@@ -94,9 +103,14 @@ export function useJobPipeline({ enabled, initialJobId }: UseJobPipelineArgs) {
   });
 
   const handleUpload = useCallback(
-    (file: File) => upload.mutate(file),
+    (file: File, customer?: string) => upload.mutate({ file, customer }),
     [upload]
   );
+
+  const handleRetry = useCallback(() => {
+    if (!jobId) return;
+    retry.mutate(jobId);
+  }, [jobId, retry]);
 
   const handleExport = useCallback(() => {
     if (!jobId) return;
@@ -142,6 +156,7 @@ export function useJobPipeline({ enabled, initialJobId }: UseJobPipelineArgs) {
     jobId,
     result,
     upload,
+    retry,
     jobStatus,
     jobResult,
     editCells,
@@ -153,6 +168,7 @@ export function useJobPipeline({ enabled, initialJobId }: UseJobPipelineArgs) {
     headerProgressValue,
     headerStatusLabel,
     handleUpload,
+    handleRetry,
     handleExport,
     handleSaveEdits,
     handleExcludeRows,

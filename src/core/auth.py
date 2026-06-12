@@ -18,7 +18,7 @@ _SETTINGS: dict[str, str | bool | int | None] = {
     "login_enabled": True,
     "login_admin_user": "admin",
     "login_admin_password": "admin",
-    "allow_default_admin": True,
+    "allow_default_admin": False,
     "session_cookie_name": "bom_session",
     "session_ttl_seconds": 8 * 60 * 60,
     "session_cookie_secure": False,
@@ -61,7 +61,14 @@ def init_auth() -> None:
         os.environ.get("LOGIN_ADMIN_USER", "admin").strip() or "admin"
     )
     _SETTINGS["login_admin_password"] = os.environ.get("LOGIN_ADMIN_PASSWORD", "admin")
-    _SETTINGS["allow_default_admin"] = _env_bool("LOGIN_ALLOW_DEFAULT_ADMIN", True)
+    _SETTINGS["allow_default_admin"] = _env_bool("LOGIN_ALLOW_DEFAULT_ADMIN", False)
+
+    if bool(_SETTINGS["allow_default_admin"]) or _SETTINGS["login_admin_password"] == "admin":
+        logger.warning(
+            "SECURITY: Default-Admin-Zugang admin/admin ist aktiv — "
+            "NICHT für Produktion geeignet "
+            "(LOGIN_ALLOW_DEFAULT_ADMIN / LOGIN_ADMIN_PASSWORD)."
+        )
     _SETTINGS["session_cookie_name"] = (
         os.environ.get("SESSION_COOKIE_NAME", "bom_session").strip() or "bom_session"
     )
@@ -170,11 +177,24 @@ async def verify_api_key(request: Request) -> None:
     if bool(_SETTINGS["login_enabled"]):
         token = request.cookies.get(str(_SETTINGS["session_cookie_name"]), "")
         if token and get_session_user(token):
+            # CSRF double-submit check for mutating methods (SEC-003)
+            if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+                csrf_cookie = request.cookies.get("csrf_token", "")
+                csrf_header = request.headers.get("X-CSRF-Token", "")
+                if not csrf_cookie or not csrf_header or not secrets.compare_digest(
+                    csrf_cookie, csrf_header
+                ):
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="CSRF token missing or invalid",
+                    )
             return
 
     if bool(_SETTINGS["api_key_enabled"]):
         provided = request.headers.get("X-API-Key", "")
-        if provided == _SETTINGS["api_key"]:
+        stored = str(_SETTINGS["api_key"] or "")
+        if provided and stored and secrets.compare_digest(provided, stored):
+            # API-key path — no CSRF required (no cookie context)
             return
 
     if bool(_SETTINGS["login_enabled"]) or bool(_SETTINGS["api_key_enabled"]):

@@ -49,7 +49,9 @@ def test_material_column_confidence_is_boosted_by_value_evidence() -> None:
     mp = MappingResult(source_file="t", customer="c", mappings=[_map("Werkst", "Material", 0.80)])
     result = validate_mapping(mp, bom, _schema())
     mat = next(m for m in result.adjusted_mappings if m.target_field == "Material")
-    assert mat.candidate_confidence >= 0.92
+    # BUG-007: the boost stays BELOW the 0.90 green bar — value evidence
+    # strengthens YELLOW, it never single-handedly unlocks GREEN.
+    assert mat.candidate_confidence == 0.89
 
 
 def test_non_material_column_is_not_boosted() -> None:
@@ -71,7 +73,8 @@ def test_combined_dimension_mapping_propagates_to_components() -> None:
     assert {"Dimensions X/D", "Dimensions Y/L", "Dimensions Z"} <= targets
     for m in result.adjusted_mappings:
         if m.target_field in {"Dimensions Y/L", "Dimensions Z"}:
-            assert m.candidate_confidence >= 0.92
+            # BUG-007: value-evidence boost stays below the 0.90 green bar.
+            assert m.candidate_confidence == 0.89
 
 
 def test_combined_dimension_is_not_a_type_error() -> None:

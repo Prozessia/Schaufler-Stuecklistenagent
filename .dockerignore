@@ -1,0 +1,22 @@
+# SEC-006: exclude files that must not enter the Docker build context.
+# NOTE: config/ is intentionally NOT excluded — it contains target_template.xlsx
+# and app_config.yaml that the backend needs at runtime.
+
+data/
+.venv/
+.git/
+evaluation/
+frontend/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+tests/
+scripts/
+docs/
+*.pyc
+
+# Large known artefacts that should not be baked in
+uploads_schaufler*.xlsx
+export_schaufler.xlsx
+N4329*.pdf
+Schaufler Prototyp.pdf

@@ -32,9 +32,11 @@ def test_steel_number_not_in_catalog_resolves_to_itself_not_wrong_material() -> 
     """
     catalog = MaterialCatalog()
 
-    result = catalog.match("STAHL EN 10305-2- 1.0580 +N")
+    # 1.0580 is in the full imported catalog since DATA-003 — use a number that
+    # is genuinely absent so the FORMAT path (not the catalog) is under test.
+    result = catalog.match("STAHL EN 10305-2- 1.0581 +N")
 
-    assert result.canonical == "1.0580"
+    assert result.canonical == "1.0581"
     assert result.method == "werkstoff_nr_format"
     assert result.confidence == 0.92
 
@@ -54,9 +56,16 @@ def test_embedded_werkstoff_number_is_recognised() -> None:
     """M3: the Werkstoffnummer embedded in a norm-prefixed string is extracted."""
     catalog = MaterialCatalog()
 
+    # 1.4301 is catalog-confirmed since the DATA-003 import (method
+    # werkstoff_nr_extract, conf 1.0) — strictly better than format recognition.
     result = catalog.match("STAHLEN 10088-2-1.4301")
 
     assert result.canonical == "1.4301"
+    assert result.method == "werkstoff_nr_extract"
+
+    # The format path itself still works for numbers absent from the catalog.
+    result = catalog.match("STAHLEN 10088-2-1.4999")
+    assert result.canonical == "1.4999"
     assert result.method == "werkstoff_nr_format"
 
 
@@ -70,12 +79,17 @@ def test_class_c_values_never_format_matched() -> None:
 
 
 def test_m2_standalone_stripped_number_recognised() -> None:
-    """M2: a standalone DIN number with the dot swallowed (+ optional suffix)."""
+    """M2: a standalone DIN number with the dot swallowed (+ optional suffix).
+
+    DATA-004: the stripped form is a reconstruction, not a reading — it is a
+    SUGGESTION (own method, not green-eligible), never auto-GREEN.
+    """
     catalog = MaterialCatalog()
     for value, expected in [("12343", "1.2343"), ("10116G", "1.0116"), ("11141", "1.1141")]:
         result = catalog.match(value)
         assert result.canonical == expected, (value, result.method, result.canonical)
-        assert result.method == "werkstoff_nr_format"
+        assert result.method == "werkstoff_nr_stripped"
+        assert result.confidence < 0.90
 
 
 def test_m2_never_converts_a_norm_number(  ) -> None:
@@ -88,10 +102,16 @@ def test_m2_never_converts_a_norm_number(  ) -> None:
         "STAHL EN 10088-2-",
         "STAHL EN 10025-2",
         "STAHL EN 10305-1-",
-        "DIN 16756",
         "AL.-LEG. ISO 18273-",
         "8 STAHL EN 10305-4",
     ):
         result = catalog.match(value)
         assert result.method != "werkstoff_nr_format", (value, result.method)
         assert result.canonical is None, (value, result.canonical)
+
+    # "DIN 16756" is a literal entry in Schaufler's own Werkstoff-Stammdaten
+    # (Normteil-Bezeichnung). An exact IDENTITY match is fine — what must never
+    # happen is a CONVERSION into a 1.XXXX number.
+    result = catalog.match("DIN 16756")
+    assert result.method == "exact_alias"
+    assert result.canonical == "DIN 16756"

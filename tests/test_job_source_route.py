@@ -2,11 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from src.api.job_store import Job
 from src.api.main import app
 from src.api.routes import jobs as jobs_route
+
+
+@pytest.fixture(autouse=True)
+def _disable_auth(monkeypatch):
+    from src.core import auth
+
+    monkeypatch.setitem(auth._SETTINGS, "login_enabled", False)
+    monkeypatch.setitem(auth._SETTINGS, "api_key_enabled", False)
 
 
 class _StubStore:
