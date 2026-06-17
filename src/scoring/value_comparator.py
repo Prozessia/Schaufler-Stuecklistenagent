@@ -111,6 +111,7 @@ class ValueComparator:
         extraction_confidence: float | None = None,
         extraction_reason: str | None = None,
         document_text_layer: str | None = None,
+        extraction_match_type: str | None = None,
     ) -> ValueCompareResult:
         mapped_norm = _normalize_text(mapped_value)
         extracted_norm = _normalize_text(extracted_value)
@@ -124,6 +125,18 @@ class ValueComparator:
                 strict_exact_match=False,
                 normalized_mapped=mapped_norm,
                 normalized_extracted=extracted_norm,
+            )
+
+        # GREEN-RECOVERY P0/P1: a "row_fallback" extraction is the WHOLE row line
+        # (the parser could not isolate the column's x-corridor). It is therefore
+        # NOT a column-scoped value that can CONTRADICT the mapped value, and must
+        # never produce a MISMATCH hard-veto (P0). We confirm by in-row
+        # containment instead: a strong-identity token present in its own row is
+        # row-scoped identity proof and GREEN-eligible (P1); anything weaker stays
+        # UNCERTAIN → YELLOW (review), never RED.
+        if extraction_match_type == "row_fallback" and mapped_norm:
+            return self._compare_via_row_containment(
+                mapped_norm, extracted_norm, category
             )
 
         if target_field == "Customer Part Number":
@@ -210,6 +223,66 @@ class ValueComparator:
             return self._compare_hardness(mapped_norm, extracted_norm, category)
 
         return _compare_generic_text(mapped_norm, extracted_norm, category)
+
+    def _compare_via_row_containment(
+        self,
+        mapped_norm: str,
+        extracted_norm: str,
+        category: str,
+    ) -> ValueCompareResult:
+        """Confirm a value against the whole-row text of a row_fallback cell.
+
+        Contract (GREEN-RECOVERY P0/P1):
+        - exact equality of the (degenerate) row text → genuine MATCH;
+        - strong-identity token present in its own row → MATCH (row-scoped
+          identity proof, GREEN-eligible, strict_exact=True);
+        - present-but-weak, or absent → UNCERTAIN (YELLOW). NEVER MISMATCH —
+          a whole-row blob cannot contradict a single column value.
+        """
+        if extracted_norm and mapped_norm == extracted_norm:
+            return ValueCompareResult(
+                result=MatchResult.MATCH,
+                detail="exact normalized match",
+                field_category=category,
+                strict_exact_match=True,
+                normalized_mapped=mapped_norm,
+                normalized_extracted=extracted_norm,
+            )
+
+        if not extracted_norm:
+            return ValueCompareResult(
+                result=MatchResult.UNCERTAIN,
+                detail="row-fallback extraction empty",
+                field_category=category,
+                strict_exact_match=False,
+                normalized_mapped=mapped_norm,
+                normalized_extracted=extracted_norm,
+            )
+
+        present = _value_present_in_row(mapped_norm, extracted_norm)
+        if present and _is_strong_row_identity(mapped_norm):
+            return ValueCompareResult(
+                result=MatchResult.MATCH,
+                detail="value confirmed within its row (row-scoped containment)",
+                field_category=category,
+                strict_exact_match=True,
+                normalized_mapped=mapped_norm,
+                normalized_extracted=mapped_norm,
+            )
+
+        detail = (
+            "row-fallback: value present but identity too weak to confirm"
+            if present
+            else "row-fallback: value not confirmable in row text"
+        )
+        return ValueCompareResult(
+            result=MatchResult.UNCERTAIN,
+            detail=detail,
+            field_category=category,
+            strict_exact_match=False,
+            normalized_mapped=mapped_norm,
+            normalized_extracted=extracted_norm,
+        )
 
     def _compare_hardness(
         self,
@@ -793,6 +866,29 @@ def _normalize_text(value: str | None) -> str:
 
 def _normalize_relaxed(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value)
+
+
+def _value_present_in_row(mapped_norm: str, row_norm: str) -> bool:
+    """True when the mapped value occurs as a token-bounded sequence in the row.
+
+    Reuses the part-number anchor pattern (flexible separators, hard alnum
+    boundaries) so e.g. "distanzleiste es" matches inside the full row line but a
+    short value cannot match across token boundaries.
+    """
+    from src.scoring.pdf_value_extractor import _build_anchor_pattern
+
+    pattern = _build_anchor_pattern(mapped_norm)
+    return bool(pattern and pattern.search(row_norm or ""))
+
+
+def _is_strong_row_identity(value: str) -> bool:
+    """GREEN via row-containment only for a sufficiently distinctive token.
+
+    Requires >= 6 alphanumeric core characters. Short or 2-3 digit values
+    (dimensions, counts) recur across a BOM row, so their presence is not
+    row-scoped identity proof — those stay UNCERTAIN (YELLOW), never GREEN.
+    """
+    return len(_normalize_relaxed(value)) >= 6
 
 
 def _normalize_customer_part_number_core(value: str) -> str:

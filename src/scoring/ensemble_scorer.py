@@ -296,6 +296,7 @@ async def score_bom_async(
                 extraction_confidence=compare_extraction_confidence,
                 extraction_reason=extraction.reason,
                 document_text_layer=transform_result.document_text_layer,
+                extraction_match_type=extraction.match_type,
             )
 
             check2_found = extraction.found

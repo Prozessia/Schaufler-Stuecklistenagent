@@ -15,6 +15,11 @@ class PDFExtractionResult:
     confidence: float
     source_location: str
     reason: str
+    # GREEN-RECOVERY P0/P1: the parser's column-resolution quality for this cell.
+    # "row_fallback" means NO x-corridor could be isolated, so `extracted_value`
+    # is the WHOLE row line — not column-scoped evidence. The scorer/comparator
+    # must therefore confirm by in-row containment, never hard-veto on equality.
+    match_type: str = ""
 
 
 @dataclass(slots=True)
@@ -120,6 +125,7 @@ class PDFValueExtractor:
             confidence=confidence,
             source_location=source_location,
             reason=reason,
+            match_type=location.match_type or "",
         )
 
     def _extract_from_document_text_layer(
