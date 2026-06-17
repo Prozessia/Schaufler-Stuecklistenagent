@@ -34,6 +34,16 @@ evaluation/output/
 
 # Editor / OS
 .DS_Store
+.vscode/
+.continue/
+
+# Claude Code project-local state
+.claude/settings.local.json
+.claude/projects/
+
+# Frontend build artifacts
+frontend/.next/
+frontend/tsconfig.tsbuildinfo
 
 # scratch / temp files
 .tmp_*

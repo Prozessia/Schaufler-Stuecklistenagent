@@ -1,2 +1,0 @@
-- [Rebuild root cause & RB-1](rebuild-root-cause.md) — real bug is position-as-row-identity, NOT Vision-First; RB-1 contract + coordinate_table.py shipped
-- [Material matching](material-matching.md) — Werkstoff goes GREEN via catalog-independent DIN-number format recognition, NOT catalog growth per customer
