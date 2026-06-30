@@ -1087,6 +1087,89 @@ def test_value_mismatch_below_confidence_threshold_also_red() -> None:
     assert "CHECK3_VALUE_MISMATCH" in cell.hard_vetoes
 
 
+# --- GREEN-RECOVERY P0/P1: row_fallback is whole-row text, not column evidence ---
+
+_AV_ROW = (
+    "451 03 2 DISTANZLEISTE ES QGDAGE0115746 STAHL EN 10305-2- 1.0580 459 x 150 x 200"
+)
+
+
+def test_row_fallback_strong_identity_present_in_row_is_green() -> None:
+    """A distinctive value (>=6 core chars) present as a bounded token in its own
+    row line is row-scoped identity proof — GREEN, even though the parser could
+    not isolate the column (match_type=row_fallback => extracted = whole row)."""
+    cell = _single_field_pdf_audit(
+        field_name="Description",
+        field_type="string",
+        transformed_value="DISTANZLEISTE ES",
+        extracted_value=_AV_ROW,
+        confidence=0.95,
+        source_match_type="row_fallback",
+    )
+    assert cell.classification == TrafficLight.GREEN
+    assert cell.value_match_result == "match"
+    assert "CHECK3_VALUE_MISMATCH" not in cell.hard_vetoes
+
+
+def test_row_fallback_category_a_strong_identity_is_green() -> None:
+    """Category-A field (Customer Part Number): a long unique token confirmed
+    within its own row earns strict-exact identity and therefore GREEN."""
+    cell = _single_field_pdf_audit(
+        field_name="Customer Part Number",
+        field_type="string",
+        transformed_value="QGDAGE0115746",
+        extracted_value=_AV_ROW,
+        confidence=0.95,
+        source_match_type="row_fallback",
+    )
+    assert cell.classification == TrafficLight.GREEN
+
+
+def test_row_fallback_short_numeric_present_stays_yellow_not_green_not_red() -> None:
+    """A bare 3-digit dimension recurs across a BOM row, so its presence is NOT
+    identity proof: it must stay YELLOW (review) — never GREEN, never RED."""
+    cell = _single_field_pdf_audit(
+        field_name="Dimensions X/D",
+        field_type="decimal",
+        transformed_value="459",
+        extracted_value=_AV_ROW,
+        confidence=0.95,
+        source_match_type="row_fallback",
+    )
+    assert cell.classification == TrafficLight.YELLOW
+    assert "CHECK3_VALUE_MISMATCH" not in cell.hard_vetoes
+
+
+def test_row_fallback_value_absent_from_row_is_yellow_not_red() -> None:
+    """When the value is NOT in the row text, the whole-row blob still cannot
+    CONTRADICT a single column value — so it is UNCERTAIN (YELLOW), never a RED
+    hard-veto. (A real contradiction needs an isolated-column extraction.)"""
+    cell = _single_field_pdf_audit(
+        field_name="Material",
+        field_type="string",
+        transformed_value="AlSi9Cu3",
+        extracted_value=_AV_ROW,  # contains STAHL 1.0580, not AlSi9Cu3
+        confidence=0.95,
+        source_match_type="row_fallback",
+    )
+    assert cell.classification == TrafficLight.YELLOW
+    assert "CHECK3_VALUE_MISMATCH" not in cell.hard_vetoes
+
+
+def test_row_fallback_exact_equal_value_is_green() -> None:
+    """Degenerate row_fallback whose row text equals the value exactly is a
+    genuine exact match (preserves the digital-confidence contract)."""
+    cell = _single_field_pdf_audit(
+        field_name="Design Count",
+        field_type="integer",
+        transformed_value="12",
+        extracted_value="12",
+        confidence=0.95,
+        source_match_type="row_fallback",
+    )
+    assert cell.classification == TrafficLight.GREEN
+
+
 def test_blocking_validator_error_caps_to_yellow_not_red_when_values_match() -> None:
     """A MAPPING_VALIDATOR_ERROR flags the whole COLUMN, not the cell value.
 

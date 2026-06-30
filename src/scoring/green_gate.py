@@ -271,12 +271,17 @@ def _text_path_method_verified(gate_input: GreenGateInput) -> bool:
     if gate_input.transform_method in _TEXT_PATH_METHODS:
         return True
 
-    # Identity transforms are verified by EVIDENCE, never by confidence: the
-    # output must be a strict exact match of the independently extracted source
-    # value. UNCERTAIN or merely format-equivalent results stay unverified.
+    # A transform of ANY method is verified by EVIDENCE, never by confidence,
+    # when its output is an independent STRICT-EXACT match of the extracted
+    # source value. This covers passthrough/text_cleanup identity, but also e.g.
+    # a fuzzy master-data hit (master_data:fuzzy_*) that the comparator re-
+    # confirmed via the UNIQUE DIN Werkstoffnummer ("same werkstoffnummer",
+    # strict_exact=True) — the fuzzy step did not invent that identity.
+    # GREEN-RECOVERY P2: fuzzy hits WITHOUT strict-exact (the wrong-canonical
+    # collisions BUG-008 guards against — strict_exact=False) stay unverified,
+    # as do UNCERTAIN or merely format-equivalent results.
     if (
-        gate_input.transform_method in {"passthrough", "text_cleanup"}
-        and gate_input.value_match_result == MatchResult.MATCH
+        gate_input.value_match_result == MatchResult.MATCH
         and gate_input.strict_exact_match
     ):
         return True
